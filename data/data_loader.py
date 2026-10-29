@@ -2,13 +2,13 @@
 
 import os
 import torch
-from datasets import CustomCPIDataset  # 假设你已实现
+from data.dataset import CustomCPIDataset  # 假设你已实现
 
 def generate_dataset_by_model(data_name: str, model_name: str, args) -> torch.utils.data.Dataset:
     dataset_path = os.path.join(os.getcwd(), 'dataset', data_name, model_name, 'dataset.pt')
     
     if os.path.exists(dataset_path):
-        print(f"[✓] Loading existing dataset from {dataset_path}")
+        print(f"[[OK]] Loading existing dataset from {dataset_path}")
         return torch.load(dataset_path)
 
     print(f"[+] Generating dataset for model: {model_name}")

@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn as nn
-from drug_target_interaction.end.models.GlobalMaxPooling1D import GlobalMaxPooling1D
+from models import GlobalMaxPooling1D
 
 class DeepConvDTI(nn.Module):
   ''' 

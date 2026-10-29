@@ -1,0 +1,14 @@
+[
+  {
+    "expert": "lr_expert",
+    "train_accuracy": 0.7905982905982906
+  },
+  {
+    "expert": "rf_expert",
+    "train_accuracy": 0.9359477124183007
+  },
+  {
+    "expert": "gb_expert",
+    "train_accuracy": 0.89175465057818
+  }
+]

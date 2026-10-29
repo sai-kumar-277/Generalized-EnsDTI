@@ -1,6 +1,9 @@
 import numpy as np
 import torch
-from torch_geometric.data import Data
+try:
+    from torch_geometric.data import Data
+except ImportError:
+    Data = None
 from rdkit import Chem
 from itertools import product
 from collections import defaultdict

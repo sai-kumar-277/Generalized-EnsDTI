@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from drug_target_interaction.end.models.utils import GlobalMaxPooling1D
+from models import GlobalMaxPooling1D
 
 
 

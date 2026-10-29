@@ -1,9 +1,28 @@
 import torch
 import os
 import sys
-import wandb
 from torch import nn
 from tqdm import trange
+
+# ---------------------------------------------------------------------------
+# wandb is optional — use --use-wandb flag (default: False)
+# ---------------------------------------------------------------------------
+try:
+    import wandb as _real_wandb
+    _WANDB_REAL = True
+except ImportError:
+    _real_wandb = None
+    _WANDB_REAL = False
+
+
+class _NoOpWandb:
+    """Drop-in no-op replacement for wandb when disabled or not installed."""
+    def init(self, **kwargs): pass
+    def log(self, *a, **kw): pass
+
+
+wandb = _NoOpWandb()  # default to no-op; overridden below if enabled
+
 
 from data import prepare_data, return_dataloader, split_dataset_by_fold
 from models import declare_model
@@ -12,16 +31,25 @@ from config import args, MODELS, metrics_classification, metrics_regression
 
 
 def main():
-
-    if args.device != 'cpu':
-        device = torch.device('cuda')
-    else:
-        if args.exp_mode != 'pure_test':
-            sys.exit('Do not support training model with cpu')
+    # ---- Device selection (no hard CPU exit) --------------------------------
+    if args.device == 'cpu':
         device = torch.device('cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if not torch.cuda.is_available() and args.device != 'cpu':
+            print(f"[WARN] CUDA not available. Falling back to CPU.")
+
+    # ---- Optional wandb ------------------------------------------------------
+    global wandb
+    use_wandb = getattr(args, 'use_wandb', False)
+    if use_wandb and _WANDB_REAL:
+        wandb = _real_wandb
+    else:
+        wandb = _NoOpWandb()
+
     torch.manual_seed(42)
 
-    # Load data path based on mode
+    # ---- Data path based on mode --------------------------------------------
     if args.exp_mode == '5_fold_val':
         data = args.data
     elif args.exp_mode in ['pure_train', 'train_wo_valid']:
@@ -33,7 +61,7 @@ def main():
     else:
         sys.exit('Invalid exp_mode specified')
 
-    # Define model list based on args.model
+    # ---- Model list ----------------------------------------------------------
     if args.model == 'ensdti':
         models = 'ensdti'
     elif args.model == 'default':
@@ -46,12 +74,17 @@ def main():
     else:
         models = [args.model]
 
-    # Prepare data
+    # ---- Prepare data -------------------------------------------------------
     data_obj = prepare_data(data, models, args)
 
-    # Training or testing logic
+    # ---- Per-model training / testing ---------------------------------------
     for m in models:
-        model = declare_model(m, args.task, data_obj if m in ['dpdta', 'cpi'] else None).to(device)
+        try:
+            model = declare_model(m, args.task, data_obj if m in ['dpdta', 'cpi'] else None).to(device)
+        except (ImportError, NotImplementedError) as e:
+            print(f"[SKIP] {m}: {e}")
+            continue
+
         if args.task == 'classification':
             loss_fn = nn.BCELoss()
             args.metrics = metrics_classification
@@ -63,13 +96,16 @@ def main():
 
         if args.exp_mode == 'pure_test':
             test_loader = return_dataloader(data_obj[m], args.batch, shuffle=False)
-            model.load_state_dict(torch.load(f'{os.getcwd()}/dataset/{args.data}/{m}/{args.model_mode}/{args.custom}/final_model_{args.custom}.pt'))
+            model.load_state_dict(torch.load(
+                f'{os.getcwd()}/dataset/{args.data}/{m}/{args.model_mode}/{args.custom}/final_model_{args.custom}.pt',
+                map_location=device))
             result, perf = test('Test', test_loader, model, loss_fn, args)
         else:
             if args.exp_mode == '5_fold_val':
                 datasets, all_idx = data_obj
                 for fold in range(5):
-                    train_loader, valid_loader, test_loader = split_dataset_by_fold(datasets[m], all_idx, fold, args.batch)
+                    train_loader, valid_loader, test_loader = split_dataset_by_fold(
+                        datasets[m], all_idx, fold, args.batch)
                     wandb.init(project='ensdti', name=f'{m}_fold{fold}', config=args, reinit=True)
                     train(train_loader, model, loss_fn, optimizer, args, valid_loader=valid_loader)
                     result, perf = test('Test', test_loader, model, loss_fn, args)
@@ -83,13 +119,14 @@ def main():
                     test_loader = return_dataloader(data_obj[2][m], args.batch, shuffle=False)
                     result, perf = test('Test', test_loader, model, loss_fn, args)
 
-        # Save results if needed
+        # ---- Save results --------------------------------------------------
         if args.save_result:
             out_path = f'{os.getcwd()}/dataset/{args.data}/{m}/{args.exp_mode}/{args.custom}'
             os.makedirs(out_path, exist_ok=True)
             result.to_csv(f'{out_path}/test_result.csv', index=False)
         if args.save_perf:
             perf.to_csv(f'{out_path}/test_perf.csv', index=False)
+
 
 if __name__ == '__main__':
     main()

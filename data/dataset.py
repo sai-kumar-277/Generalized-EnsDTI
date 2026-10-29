@@ -17,11 +17,23 @@ import pandas as pd
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from ogb.utils.features import atom_to_feature_vector, bond_to_feature_vector
-from utils import *
+# ogb is optional (only used in commented-out build_mol_graph)
+try:
+    from ogb.utils.features import atom_to_feature_vector, bond_to_feature_vector
+except ImportError:
+    atom_to_feature_vector = bond_to_feature_vector = None
+
+# Relative import: utils lives in same package (data/)
+from .utils import *
 
 import torch
-from torch_geometric.data import Data, InMemoryDataset
+
+# torch_geometric is optional (only used for subgraph/graph features)
+try:
+    from torch_geometric.data import Data, InMemoryDataset
+except ImportError:
+    InMemoryDataset = object  # fallback so CPIDataset class can be defined
+    Data = None
 
 PROTEIN_FEATURES = ['AAC', 'PAAC', 'DDE']
 

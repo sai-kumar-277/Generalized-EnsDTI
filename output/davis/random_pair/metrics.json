@@ -1,0 +1,68 @@
+{
+  "dataset": "davis",
+  "split_type": "random_pair",
+  "metrics": {
+    "accuracy": 0.935666313184871,
+    "auroc": 0.9037837088240313,
+    "auprc": 0.5181804042045607,
+    "f1": 0.5333333333333333,
+    "precision": 0.6303030303030303,
+    "recall": 0.4622222222222222,
+    "n_test": 5658,
+    "n_positive": 450,
+    "n_negative": 5208
+  },
+  "selective_metrics": [
+    {
+      "retain_frac": 1.0,
+      "n_retained": 5658,
+      "coverage": 1.0,
+      "selective_risk": 0.06433368681512902,
+      "selective_accuracy": 0.935666313184871
+    },
+    {
+      "retain_frac": 0.9,
+      "n_retained": 5092,
+      "coverage": 0.8999646518204313,
+      "selective_risk": 0.035545954438334644,
+      "selective_accuracy": 0.9644540455616654
+    },
+    {
+      "retain_frac": 0.8,
+      "n_retained": 4526,
+      "coverage": 0.7999293036408625,
+      "selective_risk": 0.021210782147591693,
+      "selective_accuracy": 0.9787892178524084
+    },
+    {
+      "retain_frac": 0.7,
+      "n_retained": 3961,
+      "coverage": 0.7000706963591375,
+      "selective_risk": 0.014390305478414541,
+      "selective_accuracy": 0.9856096945215854
+    },
+    {
+      "retain_frac": 0.6,
+      "n_retained": 3395,
+      "coverage": 0.6000353481795687,
+      "selective_risk": 0.008247422680412371,
+      "selective_accuracy": 0.9917525773195877
+    },
+    {
+      "retain_frac": 0.5,
+      "n_retained": 2829,
+      "coverage": 0.5,
+      "selective_risk": 0.00671615411806292,
+      "selective_accuracy": 0.9932838458819371
+    }
+  ],
+  "aurc": 0.012450622717319153,
+  "overlap_analysis": {
+    "calibration_pair_overlap_with_training": 0,
+    "calibration_drug_overlap_with_training": 64,
+    "calibration_protein_overlap_with_training": 442,
+    "test_drug_overlap_with_training": 64,
+    "test_protein_overlap_with_training": 442,
+    "test_pair_overlap_with_calibration": 0
+  }
+}
