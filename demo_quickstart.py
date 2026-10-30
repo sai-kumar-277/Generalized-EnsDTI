@@ -188,7 +188,7 @@ def main():
         conf = max(pval_0, pval_1)
         confidences.append(conf)
 
-    test_eval = test_eval.copy()
+    test_eval = demo_df[demo_df["split"] == "test"].copy()
     test_eval["confidence"] = confidences
     test_eval["pred_label"] = (test_eval["moe_prob"] >= 0.5).astype(int)
 
