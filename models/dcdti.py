@@ -1,7 +1,13 @@
 
 import torch
 import torch.nn as nn
-from models import GlobalMaxPooling1D
+class GlobalMaxPooling1D(nn.Module):
+    def __init__(self):
+        super(GlobalMaxPooling1D, self).__init__()
+        self.step_axis = 1
+
+    def forward(self, input):
+        return torch.max(input, axis=self.step_axis).values
 
 class DeepConvDTI(nn.Module):
   ''' 

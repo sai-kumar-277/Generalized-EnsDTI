@@ -1,7 +1,14 @@
 import random
 import os
 from torch.utils.data import Dataset, DataLoader
-from prefetch_generator import BackgroundGenerator
+try:
+    from prefetch_generator import BackgroundGenerator
+except ImportError:
+    class BackgroundGenerator:
+        def __init__(self, generator, max_prefetch=1):
+            self.generator = generator
+        def __iter__(self):
+            return iter(self.generator)
 from datetime import datetime
 from tqdm import tqdm
 import timeit, pickle

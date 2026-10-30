@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models import GlobalMaxPooling1D
+from .dcdti import GlobalMaxPooling1D
 
 
 
