@@ -276,7 +276,15 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
 
     args = parser.parse_args()
-    if args.model == 'dpdta':
-        train_and_eval_deepdta(args.manifest, args.dataset_raw, args.output, args.epochs, args.batch_size, args.lr)
-    elif args.model == 'dcdti':
-        train_and_eval_dcdti(args.manifest, args.dataset_raw, args.output, args.epochs, args.batch_size, args.lr)
+    train_and_eval_fn = train_and_eval_deepdta if args.model == 'dpdta' else train_and_eval_dcdti
+    train_and_eval_fn(args.manifest, args.dataset_raw, args.output, args.epochs, args.batch_size, args.lr)
+
+    # In addition to the unified output_csv, save per-split CSVs if expert-split format requested
+    # e.g., tmp/<dataset>/<split_type>/<model>_predictions_train.csv
+    out_df = pd.read_csv(args.output)
+    out_dir = os.path.dirname(args.output)
+    for s_name in ['train', 'calibration', 'test']:
+        sub = out_df[out_df['split'] == s_name]
+        sub_path = os.path.join(out_dir, f'{args.model}_predictions_{s_name}.csv')
+        sub.to_csv(sub_path, index=False)
+    print(f"[{args.model}] Saved per-split CSVs (train, calibration, test) to {out_dir}")
