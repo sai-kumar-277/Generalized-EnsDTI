@@ -1,78 +1,73 @@
-# Generalized-EnsDTI: Leakage-Controlled Evaluation, Deep Expert Ensembling, and Conformal Uncertainty Quantification for Drug–Target Interaction Prediction
+# Generalized-EnsDTI: Leakage-Controlled Evaluation, Modular Repair, and Conformal Uncertainty Quantification for Drug–Target Interaction Prediction
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-sai--kumar--277%2FGeneralized--EnsDTI-blue?logo=github)](https://github.com/sai-kumar-277/Generalized-EnsDTI)
+
+An audited, modular, and leakage-controlled re-evaluation and extension of **EnsDTI**, incorporating strict split regimes (Random-Pair, Cold-Drug, Cold-Protein, Double-Cold), disjoint Inductive Conformal Prediction (ICP), and native PyTorch deep expert models.
 
 ---
 
-## 📌 Executive Summary for Technical Reviewers & AI Assistants
+## 📖 Reference & Base Paper
 
-> **Context for LLM / Career Evaluation**:  
-> This document details **Generalized-EnsDTI**, an applied machine learning and computational biology research project. It audits, minimally repairs, and re-evaluates the published DTI ensemble framework **EnsDTI** under rigorous, leakage-controlled split regimes. It integrates native PyTorch deep learning architectures, resolves calibration contamination in Inductive Conformal Prediction (ICP), and establishes empirical benchmarks on compound memorization versus generalization.
+This project audits, repairs, and extends the methodology published in:
 
-- **Candidate / Author**: Sai Kumar Gottipilli ([@sai-kumar-277](https://github.com/sai-kumar-277))
-- **Domain**: Machine Learning, Deep Learning, Computational Biology, AI for Drug Discovery (AIDD).
-- **Core Technologies**: Python, PyTorch, Scikit-Learn, RDKit, NumPy, Pandas, Inductive Conformal Prediction (ICP), Git.
-- **Project Repository**: [https://github.com/sai-kumar-277/Generalized-EnsDTI](https://github.com/sai-kumar-277/Generalized-EnsDTI)
-- **Base Research Paper Audited**:  
-  *EnsDTI: Mixture-of-Experts Approach for Enhanced Drug-Target Interaction Prediction and Confidence Assessment*,  
-  *IEEE/ACM Transactions on Computational Biology and Bioinformatics* (TCBB), 2026.  
-  [Paper DOI Link](https://www.computer.org/csdl/journal/bb/2026/03/11353228/2dh4UUrCHMQ)
+> **EnsDTI: Mixture-of-Experts Approach for Enhanced Drug-Target Interaction Prediction and Confidence Assessment**  
+> Published in: *IEEE/ACM Transactions on Computational Biology and Bioinformatics*, 2026.  
+> **Paper Link / DOI:** [https://www.computer.org/csdl/journal/bb/2026/03/11353228/2dh4UUrCHMQ](https://www.computer.org/csdl/journal/bb/2026/03/11353228/2dh4UUrCHMQ)
 
 ---
 
-## 🔬 1. Project Background & Problem Statement
+## 🎯 1. What We Are Trying to Do (Problem Statement & Motivation)
 
-Drug–Target Interaction (DTI) prediction is a foundational problem in virtual screening, drug repurposing, and molecular biology. The published **EnsDTI** pipeline introduced a promising three-tiered paradigm:
-1. Multi-expert deep feature representations (e.g., DeepDTA, DeepConv-DTI, DeepPurpose, MDeePred, GIFDTI).
-2. A Mixture-of-Experts (MoE) neural gating network routing sample predictions based on biological descriptors.
-3. An Inductive Conformal Prediction (ICP) module outputting sample-wise confidence bounds.
+Accurate computational prediction of drug–target interactions (DTI) is critical for virtual screening, drug repurposing, and lead discovery. **EnsDTI** proposed a three-stage framework combining:
+1. Diverse expert neural architectures (`DeepDTA`, `DeepConv-DTI`, `DeepPurpose`, etc.)
+2. A Mixture-of-Experts (MoE) gating multilayer perceptron
+3. Inductive Conformal Prediction (ICP) to generate sample-wise confidence scores
 
-### Critical Research Flaws Identified in the Original Literature:
-1. **Hidden Data Leakage via Random Interaction Splitting**:
-   - In standard random 5-fold cross-validation, drug–target pairs $(d_i, t_j)$ are randomly partitioned. 
-   - Consequently, $>90\%$ of test interactions contain drugs and target proteins already present in the training set. Models achieve deceptively high scores (AUROC $>0.90$) by memorizing chemical scaffolds and protein frequencies rather than learning true biophysical binding affinities.
-2. **Conformal Exchangeability Violation (Calibration Contamination)**:
-   - Inductive Conformal Prediction guarantees valid coverage only under the assumption that calibration and test data points are **exchangeable**.
-   - In the original implementation, the calibration set was drawn from the full dataset without enforcing disjointness from training data. When the model evaluates its own training points, prediction errors are artificially deflated, compromising real-world validity.
-3. **Software Brittleness & Hardware Exclusivity**:
-   - The open-source code contained circular imports, hardcoded CUDA-only assertions that crashed standard CPU environments, unhandled exceptions on missing packages (e.g., `wandb`), and non-reproducible dependency structures.
+However, rigorous independent audits of DTI pipelines reveal key methodological challenges that our project addresses:
 
----
+### A. Overcoming Hidden Data Leakage in Evaluation
+- **The Pitfall:** Conventional random interaction-level splitting partitions drug–target pairs randomly across train and test sets. In this setup, almost all test drugs and test targets have already been seen in training interactions.
+- **The Consequence:** Models often exploit **compound memorization** and target frequency biases rather than learning generalized biophysical interaction rules. Reported AUROC/AUPRC scores are often unrealistically high.
+- **Our Goal:** Implement strict, leakage-controlled partition manifests covering four standardized evaluation regimes:
+  - **Random Pair Split**: Standard interaction-level benchmark baseline.
+  - **Cold-Drug Split**: Evaluates generalization to entirely unseen chemical scaffolds / candidate drugs.
+  - **Cold-Protein Split**: Evaluates generalization to novel disease protein targets.
+  - **Double-Cold Split**: Evaluates generalization when both drug and target are completely unseen during training.
 
-## 🛠️ 2. What We Have Built & Achieved
+### B. Enforcing Valid Conformal Exchangeability in ICP
+- **The Pitfall:** The original ICP implementation sampled calibration pairs directly from the full dataset without enforcing disjointness from training data.
+- **The Consequence:** When calibration data overlaps with model training data, model prediction residuals are artificially compressed. This underestimates non-conformity scores and can produce overconfident prediction intervals.
+- **Our Goal:** Establish **Regime B (Strict Disjoint Pair Calibration)** where calibration data is strictly quarantined from both expert model training and MoE gating optimization, preventing calibration contamination.
 
-### A. Strict Leakage-Controlled Partitioning Framework
-We designed and implemented a reproducible data manifest generator (`generate_split.py`) that strictly enforces four standardized evaluation regimes on the Davis benchmark ($25{,}772$ interactions):
-- **Random Pair Split**: Standard baseline (random interaction-level split).
-- **Cold-Drug Split**: All drugs in the test set are completely absent from the training and calibration sets (evaluating unseen chemical scaffold generalization).
-- **Cold-Protein Split**: All target proteins in the test set are absent from training and calibration (evaluating novel target discovery).
-- **Double-Cold Split**: Both drug and protein are simultaneously unseen (evaluating de novo interaction prediction).
-
-### B. Modular PyTorch Deep Expert Implementations
-Instead of relying on surrogate shallow models or abandoned TensorFlow 1.x repositories, we audited and operationalized native PyTorch deep models:
-- **DeepDTA (`models/dpdta.py`)**: Dual 1D-CNN encoders processing SMILES character sequences (max length 85) and protein sequences (max length 1200) fused into dense prediction blocks.
-- **DeepConv-DTI (`models/dcdti.py`)**: Multi-scale 1D CNN with dilated filter banks capturing varying amino acid motif lengths combined with 2048-bit Morgan chemical fingerprints.
-- Built a unified training orchestrator (`train_deep_experts.py`) that strictly accepts split manifests, trains solely on `train` splits, and outputs versioned test/calibration prediction files.
-
-### C. Contamination-Free Conformal Prediction (`icp_predict_v2.py`)
-- Enforced **Regime B (Strict Disjoint Calibration)**: Formed a three-way split $(\mathcal{D}_{\text{train}}, \mathcal{D}_{\text{cal}}, \mathcal{D}_{\text{test}})$ ensuring $\mathcal{D}_{\text{cal}} \cap \mathcal{D}_{\text{train}} = \emptyset$.
-- Calibrated Mondrian non-conformity scores:
-  $$\alpha_i(y) = |y - \hat{P}(Y=1 \mid x_i)|$$
-  to compute non-parametric $p$-values $(p_0, p_1)$ and sample confidence:
-  $$\text{Confidence}(x) = \max\bigl(p_0(x), p_1(x)\bigr)$$
-
-### D. Interactive Fast-Verification Demo (`demo_quickstart.py`)
-- Engineered a turnkey CLI demo tool allowing researchers to subsample dataset pairs, train individual deep expert models, evaluate MoE gating, and observe conformal selective classification in under 60 seconds on standard CPU hardware.
+### C. Codebase Audit, Modular Repair & Portability
+- **The Pitfall:** The original repository contained broken package dependencies, hardcoded CUDA exits preventing CPU execution, circular imports in expert models, and undocumented intermediate data schemas.
+- **Our Goal:** Deliver a clean, reproducible, and runnable PyTorch codebase that executes out-of-the-box on both GPU and CPU workstations without modifying core mathematical architectures or label binarization logic.
 
 ---
 
-## 📊 3. Empirical Results & Scientific Takeaways
+## 🏆 2. What We Have Achieved (Milestones & Findings)
 
-### Finding 1: Deep Models Suffer Massive Drops on Unseen Compounds ("Scaffold Memorization")
-Testing native deep expert models on Davis across leakage-controlled splits confirms that reported random-split metrics do not reflect true out-of-distribution generalization:
+### 🛠️ Technical Milestones
+1. **Clean Native PyTorch Ports of Deep Experts:**
+   - Audited and repaired native PyTorch implementations of [`DeepDTA`](models/dpdta.py) (dual 1D-CNN over SMILES and amino acid sequences) and [`DeepConv-DTI`](models/dcdti.py) (multi-scale dilated protein convolutions + fingerprint dense blocks).
+   - Resolved circular imports, missing dependency fallbacks, and memory overheads, enabling smooth execution on CPU and GPU.
+2. **Leakage-Controlled Data Partitioning Engine:**
+   - Built [`generate_split.py`](generate_split.py) and [`audit_splits.py`](audit_splits.py) to partition the full Davis benchmark dataset (25,772 interactions) into guaranteed disjoint splits with reproducible seed control.
+3. **Stand-Alone Deep Model Training & Manifest Pipeline:**
+   - Implemented [`train_deep_experts.py`](train_deep_experts.py) to train individual deep architectures strictly on training sets and export standardized predictions (`<model>_predictions.csv`) for calibration and test splits.
+4. **Disjoint MoE & Conformal Prediction (`icp_predict_v2.py`):**
+   - Implemented clean two-step routing and inductive conformal prediction with strict calibration isolation, reporting valid non-conformity $p$-values ($p_0, p_1$) and confidence metrics.
+5. **Interactive Quickstart Demo Script:**
+   - Developed [`demo_quickstart.py`](demo_quickstart.py) which trains individual deep models on sample subsets, displays per-model AUROC/AUPRC, evaluates MoE gating, and validates conformal error rejection in under 60 seconds.
+
+---
+
+### 📊 Key Empirical Findings on Davis Dataset
+
+#### 1. Performance Degradation Under Cold-Start Distribution Shift
+Evaluating native deep models on Davis reveals the true impact of data leakage:
 
 | Model Architecture | Random-Pair AUROC | Cold-Drug AUROC | Cold-Protein AUROC | Double-Cold AUROC |
 | :--- | :---: | :---: | :---: | :---: |
@@ -80,95 +75,132 @@ Testing native deep expert models on Davis across leakage-controlled splits conf
 | **DeepConv-DTI** (Native PyTorch) | **0.8812** | 0.6489 | 0.8095 | 0.5512 |
 | **MoE Gated Ensemble** | **0.8895** | 0.6652 | 0.8241 | 0.5603 |
 
-> **Scientific Insight**: DeepDTA converges to AUROC $\approx 0.88$ on random-pair splits (consistent with the paper's reported 0.901). However, under Cold-Drug evaluation, performance collapses by **23 points to 0.65**, proving deep DTI models rely overwhelmingly on memorizing training compounds rather than learning biophysical binding mechanisms.
+> **Key Takeaway:** The deep models achieve AUROC $\approx 0.88$ on random-pair splits (reasonably matching the paper's reported 0.901). However, performance drops to $\approx 0.65$ under Cold-Drug evaluation and approaches random guessing ($\approx 0.55$) in Double-Cold settings. This confirms that contemporary deep DTI models rely heavily on drug scaffold memorization.
 
-### Finding 2: Conformal Error Rejection Filters Failures in High-Stakes Settings
-Using calibrated conformal confidence scores to selectively defer low-confidence test samples demonstrates dramatic accuracy gains on the remaining predictions:
+#### 2. Efficacy of Conformal Selective Classification
+EnsDTI's Inductive Conformal Prediction (ICP) assigns sample-wise confidence:
+$$\text{Confidence}(x) = \max\bigl(p_0(x), p_1(x)\bigr)$$
 
-| Retention Threshold | Retained Test Pairs | Selective Accuracy | Absolute Error Reduction |
+Rejecting predictions with low conformal confidence significantly enhances reliability:
+
+| Retention Rate | Retained Test Samples | Selective Test Accuracy | Error Reduction |
 | :---: | :---: | :---: | :---: |
-| **100% (All Samples)** | 300 | 85.67% | Baseline (43 errors) |
-| **80% (Top Confident)** | 241 | 90.04% | 44.2% error reduction |
-| **60% (Top Confident)** | 181 | 91.16% | 62.8% error reduction |
-| **50% (Top Confident)** | 150 | **91.33%** | **69.8% error reduction** |
+| **100.0%** (All predictions) | 300 | 85.67% | Baseline |
+| **80.0%** (Top confidence) | 241 | 90.04% | -30.5% errors |
+| **60.0%** (Top confidence) | 181 | 91.16% | -38.3% errors |
+| **50.0%** (Top confidence) | 150 | **91.33%** | **-39.5% errors** |
 
 ---
 
-## 🚀 4. Future Roadmap & Ongoing Research
+## 🚀 3. What We Are Trying to Achieve Further (Roadmap)
 
-1. **Expanding Deep Ensembles to Graph & Attention Architectures**:
-   - Integrating graph neural networks (MPNN in `DeepPurpose`) and cross-attention models (`GIFDTI`) with PyTorch Geometric and FP16 mixed precision.
-2. **Cross-Benchmark Evaluation on KIBA**:
-   - Scaling leakage-controlled splits and conformal calibration to the KIBA benchmark ($>118{,}000$ interactions, 2,111 drugs, 229 kinase targets).
-3. **Covariate-Shift Robust Conformal Prediction**:
-   - Implementing **Weighted Inductive Conformal Prediction (W-ICP)** using density ratio estimation to guarantee exact coverage even under severe cold-start distribution shifts where standard exchangeability is broken.
-4. **Extensible Open Benchmark Suite**:
-   - Packaging the code into an open-source evaluation suite for zero-leakage drug discovery benchmarking.
+We are actively advancing this repository along several directions:
+
+1. **Expanding Deep Expert Ensembling to Remaining Models:**
+   - Optimize memory-efficient graph mini-batching for [`DeepPurpose`](models/dp.py) (MPNN) and lightweight attention for [`GIFDTI`](models/gifdti.py) to enable 5-model deep ensembling on standard hardware.
+2. **Cross-Benchmark Generalization on KIBA Dataset:**
+   - Scale the leakage-controlled evaluation framework to the KIBA dataset ($>118{,}000$ interactions) to verify whether compound memorization is universal across kinase binding benchmarks.
+3. **Distribution-Shift Robust Conformal Prediction:**
+   - Enforce theoretical coverage guarantees under covariate shift using Weighted Inductive Conformal Prediction (W-ICP) to account for distribution divergence in cold-drug and cold-protein testing.
+4. **Unified DTI Benchmarking CLI:**
+   - Package Generalized-EnsDTI as an open benchmark suite where researchers can plug in any novel DTI architecture and immediately obtain zero-leakage evaluations and conformal uncertainty bounds.
 
 ---
 
-## 💻 5. Quickstart & Usage Instructions
+## 📁 Repository Structure
 
-### Environment Setup
+```text
+Generalized-EnsDTI/
+├── demo_quickstart.py          # Interactive sample demo: trains experts, MoE, and ICP
+├── train_deep_experts.py       # Stand-alone trainer for native PyTorch deep experts
+├── generate_split.py           # Leakage-controlled data splitter (4 regimes)
+├── audit_splits.py             # Verification script to ensure zero drug/target leakage
+├── moe_predict_v2.py           # Leakage-controlled Mixture-of-Experts gating
+├── icp_predict_v2.py           # Disjoint Inductive Conformal Prediction engine
+├── evaluate_results.py         # Summary metrics & selective accuracy computation
+├── main.py                     # Original EnsDTI training entrypoint (repaired)
+│
+├── models/                     # Native PyTorch expert architectures
+│   ├── dpdta.py                # DeepDTA (Dual 1D-CNN)
+│   ├── dcdti.py                # DeepConv-DTI (Multi-scale CNN)
+│   ├── dp.py                   # DeepPurpose (MPNN + CNN)
+│   └── gifdti.py               # GIFDTI (Graph interaction feature DTI)
+│
+├── dataset/                    # Benchmark datasets (Davis, etc.)
+│   └── davis/data.csv          # Raw interaction pairs and binding affinities
+│
+├── output/                     # Generated leakage-controlled split manifests
+│   └── davis/
+│       ├── random_pair/        # Random interaction split manifest
+│       ├── cold_drug/          # Cold drug split manifest
+│       ├── cold_protein/       # Cold target protein split manifest
+│       └── double_cold/        # Double cold split manifest
+│
+└── tmp/                        # Cached model predictions and evaluation logs
+```
+
+---
+
+## ⚡ Quickstart Guide
+
+### 1. Installation
+
+Clone the repository and install dependencies:
+
 ```bash
 git clone https://github.com/sai-kumar-277/Generalized-EnsDTI.git
 cd Generalized-EnsDTI
+
+# Install required dependencies
 pip install -r requirements.txt
 ```
 
-### 1-Minute Verification Demo (Runs on CPU/GPU)
+### 2. Fast Sample Demo (< 60 Seconds)
+
+Test the complete 3-stage pipeline (individual models, MoE, and ICP error rejection) on sample Davis data:
+
 ```bash
-# Evaluates DeepDTA, DeepConv-DTI, MoE, and ICP on sample data
+# Run quickstart on 300 samples under cold-drug split
 python demo_quickstart.py --samples 300 --epochs 1 --split cold_drug
 ```
 
-### Full Training & Evaluation
+**Custom Options:**
+- `--samples`: Number of sample training pairs to use (e.g. `300`, `500`, `1000`).
+- `--epochs`: Number of training epochs per deep model (default: `2`).
+- `--split`: Evaluation regime (`cold_drug`, `random_pair`, `cold_protein`, `double_cold`).
+
+### 3. Training Deep Expert Models on Full Data
+
+Train individual deep experts across the full Davis dataset with leakage-controlled manifests:
+
 ```bash
-# 1. Train native DeepDTA model
+# Train DeepDTA across all splits
 python train_deep_experts.py --dataset davis --model dpdta --epochs 10 --batch-size 64
 
-# 2. Train native DeepConv-DTI model
+# Train DeepConv-DTI across all splits
 python train_deep_experts.py --dataset davis --model dcdti --epochs 10 --batch-size 64
+```
 
-# 3. Run leakage-controlled MoE gating
+### 4. Running Leakage-Controlled MoE and ICP Evaluation
+
+Run gating and conformal prediction across all four split regimes:
+
+```bash
+# Run MoE gating network
 python moe_predict_v2.py --dataset davis --split cold_drug
 
-# 4. Run disjoint Inductive Conformal Prediction
+# Run Inductive Conformal Prediction with disjoint calibration
 python icp_predict_v2.py --dataset davis --split cold_drug
 
-# 5. Output full audit table across all 4 split regimes
+# Generate full benchmark comparison table
 python evaluate_results.py
 ```
 
 ---
 
-## 💼 6. Resume & Career Narrative Guide (For LLM / Recruiters)
+## 📑 Citation & Acknowledgments
 
-If you are using an LLM (e.g., ChatGPT) or writing resume profiles, cover letters, or portfolio descriptions, use the following structured highlights:
-
-### Core Competencies & Skills
-- **Machine Learning & Deep Learning**: PyTorch, Deep Learning Architectures (1D-CNN, Dilated Convolutions, Multi-Head Attention, GNNs), Ensemble Learning, Mixture-of-Experts (MoE).
-- **Statistical Rigor & UQ**: Inductive Conformal Prediction (ICP), Non-parametric $p$-values, Covariate Shift Analysis, Selective Prediction / Error Rejection.
-- **Computational Biology & AIDD**: Drug–Target Interaction (DTI) Prediction, SMILES Encoding, Protein Sequence Modeling, Morgan Fingerprints, Bioactivity Metrics ($K_d$, $K_i$).
-- **Software Engineering**: Modular Pipeline Design, Code Auditing, Reproducibility Benchmarking, Memory Optimization, Data Manifest Versioning, Git.
-
-### STAR Method Resume Bullet Points
-
-- **Bullet 1 (Research Auditing & Leakage Control)**:  
-  *Audited and re-evaluated the EnsDTI deep ensemble architecture on 25k+ drug–target interactions, developing a zero-leakage manifest generator across 4 evaluation regimes (Random-Pair, Cold-Drug, Cold-Protein, Double-Cold) that uncovered a 23-point AUROC collapse due to compound scaffold memorization.*
-
-- **Bullet 2 (Deep Learning Engineering & Optimization)**:  
-  *Refactored and ported multi-modal deep learning models (DeepDTA, DeepConv-DTI) to modern PyTorch, resolving legacy dependency deadlocks, circular imports, and CPU memory bottlenecks to achieve reliable training on restricted hardware environments.*
-
-- **Bullet 3 (Uncertainty Quantification & Conformal Prediction)**:  
-  *Re-engineered the Inductive Conformal Prediction (ICP) module to eliminate calibration data contamination, proving that selective prediction based on calibrated non-conformity p-values boosts prediction accuracy from 85.7% to 91.3% while cutting error rates by ~40%.*
-
-- **Bullet 4 (Tooling & Open-Source Delivery)**:  
-  *Created an interactive, self-contained quickstart verification tool (`demo_quickstart.py`) allowing researchers to benchmark expert models, gating networks, and conformal confidence bounds in under 60 seconds.*
-
----
-
-## 📑 Citation & References
+If you build upon this work, please cite the base EnsDTI paper and this reproducibility audit:
 
 ```bibtex
 @article{solano2026ensdti,
@@ -180,8 +212,8 @@ If you are using an LLM (e.g., ChatGPT) or writing resume profiles, cover letter
   doi={10.1109/TCBB.2026.11353228}
 }
 
-@software{gottipilli2026generalized_ensdti,
-  title={Generalized-EnsDTI: Leakage-Controlled Evaluation, Deep Expert Ensembling, and Conformal Uncertainty Quantification},
+@software{generalized_ensdti_2026,
+  title={Generalized-EnsDTI: Leakage-Controlled Evaluation, Modular Repair, and Conformal Uncertainty Quantification},
   author={Sai Kumar Gottipilli},
   year={2026},
   url={https://github.com/sai-kumar-277/Generalized-EnsDTI}
