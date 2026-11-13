@@ -202,3 +202,120 @@ Saved in [`output/davis/REGIME_COMPARISON.csv`](file:///c:/Users/saiku/OneDrive/
 > 4. Feature preprocessing dependencies (`drug_target_interaction`, `ogb`, `torch_geometric`).
 > 
 > The pipeline developed in this audit demonstrates that the EnsDTI MoE and ICP architectures **can function reliably and without leakage** once properly repaired, providing a standardized, leak-free benchmarking framework for future DTI research.
+
+---
+
+## 11. Systematic Audit of Candidate Expert Models for Integration
+
+In accordance with the objective to identify and evaluate candidate DTI models for potential integration as an additional deep expert into EnsDTI, we systematically cloned, audited, and benchmarked five candidate repositories in the mandated order:
+
+1. **DeepTGIN** (`https://github.com/zhc-moushang/DeepTGIN`)
+2. **GSF-DTA** (`https://github.com/GreatChenLab/GSF-DTA`)
+3. **GraphTransDTA** (`https://github.com/wfllyzh/GraphTransDTA`)
+4. **DACMF-DTI** (`https://github.com/hey-xw/DACMF-DTI`)
+5. **MAFI** (`https://github.com/aliveadult/MAFI`)
+
+### Summary Table of Audited Candidates
+
+| Candidate Repository | Commit Hash Cloned | Framework / Primary Stack | Target Prediction | Primary Execution Blockers | Classification |
+| :--- | :---: | :--- | :---: | :--- | :---: |
+| **DeepTGIN** | `88763b0` | PyTorch 1.9 + PyG + Apex | Continuous ($pK_d$) | PyG compiled C++ extensions missing; `apex` GPU-only | **NOT FEASIBLE** |
+| **GSF-DTA** | `0dd8aa6` | PyTorch 1.10 + PyG | Continuous ($pK_d$) | Requires downloading 379 external AlphaFold 3D PDB files; PyG | **NOT FEASIBLE** |
+| **GraphTransDTA** | `303a42f` | PyTorch 1.12 + PyG | Continuous ($pK_d$) | PyG `GCNConv`/`TransformerConv`; requires `torch-scatter`/`torch-sparse` | **NOT FEASIBLE** |
+| **DACMF-DTI** | `a0c231d` | PyTorch (Pure NN) | Binary (2 logits) | $O(L^2)$ attention over length 1,260 requires GPU; CPU batch time ~7.3s-8.9s (>9 hrs total) | **NOT FEASIBLE** (on CPU) |
+| **MAFI** | `a87c98e` | PyTorch + ESM3 + PyG | Continuous ($pK_d$) | Requires 2x RTX 4090 (24GB), Google Drive contact maps, ESM3 | **NOT FEASIBLE** |
+
+---
+
+### Candidate 1: DeepTGIN
+- **Repository Commit Hash**: `88763b00d63c9a24924f036d4ec14f8052e43f85`
+- **Python Version & Dependencies**: Python 3.8.17, PyTorch 1.9.0+cu111, `torch-geometric` (2.0.1), `torch-cluster` (1.5.9), `torch-scatter` (2.0.8), `torch-sparse` (0.6.12), `apex` (0.1), `rdkit` (2023.3.2).
+- **Deep-Learning Framework**: PyTorch with Graph Isomorphism Networks (`GINConv`, `global_add_pool`) and Transformer encoder.
+- **Input Data Format**: SMILES string converted into RDKit molecular graphs (atom node features + adjacency edge indices) and protein sequence amino acid tokens.
+- **Training Entry Point**: `main.py`
+- **Prediction Generation Procedure**: Predicts continuous binding affinity ($pK_d$) optimized with MSE loss.
+- **Pretrained Weights**: None included in the repository.
+- **CPU/GPU Requirements**: Requires CUDA GPU for NVIDIA `apex` half-precision acceleration. Requires compiled C++ extensions (`torch-scatter`, `torch-sparse`, `torch-cluster`) which do not provide wheels for Python 3.13 on Windows.
+- **Missing Files / Broken Imports**: `ModuleNotFoundError: No module named 'torch_geometric'`, `apex`.
+- **Target Task**: Continuous affinity regression.
+- **Classification**: **NOT FEASIBLE** (Incompatible framework dependencies, missing Python 3.13 Windows C++ wheels, GPU-only Apex dependency).
+
+---
+
+### Candidate 2: GSF-DTA
+- **Repository Commit Hash**: `0dd8aa680e76611bd85b07d69e3fa822259c41ab`
+- **Python Version & Dependencies**: Python 3.8/3.9, PyTorch 1.10.1, `torch_geometric` (2.0.4), `biopython` (1.79), `requests`.
+- **Deep-Learning Framework**: PyTorch + PyTorch Geometric.
+- **Input Data Format**: RDKit drug molecular graphs and **full 3D protein structure PDB files**. The pipeline (`alphafold_utils.py`) dynamically queries `https://alphafold.ebi.ac.uk/files/AF-{}-F1-model_v4.pdb` to download AlphaFold PDB structures for every target.
+- **Training Entry Point**: `train.py` / `main.py`
+- **Prediction Generation Procedure**: Continuous affinity regression ($pK_d$) using MSE loss.
+- **Pretrained Weights**: None included.
+- **CPU/GPU Requirements**: Requires GPU for 3D residue-level graph convolutions; requires continuous internet connectivity to AlphaFold EBI servers.
+- **Missing Files / Broken Imports**: Lacks precomputed PDB structures for Davis proteins; unmapped targets cause download failures; missing `torch_geometric`.
+- **Target Task**: Continuous affinity regression.
+- **Classification**: **NOT FEASIBLE** (Requires external online data acquisition from AlphaFold EBI, incompatible with offline evaluation; depends on PyTorch Geometric).
+
+---
+
+### Candidate 3: GraphTransDTA
+- **Repository Commit Hash**: `303a42f03de32a6d30d0cd7a83e7c2d9fff72b0a`
+- **Python Version & Dependencies**: Python 3.9, PyTorch 1.12.0+cu116, `torch-geometric` (2.4.0), `torch-scatter` (2.1.0), `torch-sparse` (0.6.16), `biopython` (1.84).
+- **Deep-Learning Framework**: PyTorch with graph neural network layers deriving directly from `torch_geometric.nn` (`GCNConv`, `TransformerConv`, `GATv2Conv`).
+- **Input Data Format**: Drug molecular graphs (RDKit) and protein 1D sequence encodings.
+- **Training Entry Point**: `train_1D_gt.py`
+- **Prediction Generation Procedure**: Predicts continuous binding affinity ($pK_d$) via regression.
+- **Pretrained Weights**: None included.
+- **CPU/GPU Requirements**: Requires CUDA GPU; strictly depends on compiled C++ binaries `torch-scatter` and `torch-sparse`.
+- **Missing Files / Broken Imports**: Fails on import with `ModuleNotFoundError: No module named 'torch_geometric'`.
+- **Target Task**: Continuous affinity regression.
+- **Classification**: **NOT FEASIBLE** (Model architecture is fundamentally coupled to PyTorch Geometric C++ libraries that lack Python 3.13 Windows support).
+
+---
+
+### Candidate 4: DACMF-DTI
+- **Repository Commit Hash**: `a0c231db833a8f6cd84d57b2be99acd65565ee76`
+- **Python Version & Dependencies**: Python 3.8 - 3.13 compatible, pure PyTorch (`nn.Module`, `Conv1d`, `MultiheadAttention`, `BatchNorm1d`), NumPy, scikit-learn.
+- **Deep-Learning Framework**: Pure PyTorch (`AttentionDTA`). A legacy line (`from torch_geometric.nn import ...`) on line 7 was confirmed to be unused by `AttentionDTA` and easily commented out.
+- **Input Data Format**: SMILES integer character sequences (length 100 via `CHARISOSMISET`, 64 vocabulary) and protein sequence amino acid tokens (length 1200 via `CHARPROTSET`, 25 vocabulary) — identical in representation to EnsDTI.
+- **Training Entry Point**: `DIT_main.py` / modular trainer.
+- **Prediction Generation Procedure**: **Native 2-class binary interaction logits**:
+  $$\text{logits} = \text{classifier}(\text{feature}) \in \mathbb{R}^{B \times 2}$$
+  $$\text{predicted\_probability} = \text{softmax}(\text{logits}, \text{dim}=1)[:, 1]$$
+- **Pretrained Weights**: None included.
+- **CPU/GPU Requirements**: **GPU-dependent for practical execution**. The author's execution script (`run.sh`) explicitly sets `CUDA_VISIBLE_DEVICES=0`.
+- **Missing Files / Broken Imports**: None (after commenting out unused line 7).
+- **Target Task**: Native binary interaction classification.
+- **Hardware Profiling & Compute Bottleneck**:
+  - The model fuses drug CNN representations (len 83, dim 192) and protein CNN representations (len 1177, dim 192) via cross-modal attention into a concatenated sequence of length 1,260, followed by multi-head self-attention (`nn.MultiheadAttention(384, 4)`).
+  - The quadratic $O(L^2)$ complexity over length 1,260 ($1.58 \times 10^6$ operations per sample per head) creates a severe compute bottleneck on CPU.
+  - **Empirical Host CPU Benchmarks**:
+    - Training step time: **8.88 seconds per batch of 32** (~1.5 hours per epoch on Davis train split).
+    - Evaluation inference time: **7.26 seconds per batch of 64** (~53 minutes per split just to generate predictions on 28,288 samples).
+    - Total execution time across all 4 split regimes exceeds **9 hours**, which cannot run reliably within host workstation constraints and execution timeout boundaries.
+- **Classification**: **NOT FEASIBLE** (Requires GPU resources that are not available in the current environment; running on CPU exceeds timeout limits).
+- **Integration Status**: **Fully implemented and preserved** in [`models/dacmf.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/models/dacmf.py) and [`train_deep_experts.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/train_deep_experts.py) for future GPU execution.
+
+---
+
+### Candidate 5: MAFI
+- **Repository Commit Hash**: `a87c98ea83ce94bc5f0e1f352a13967cb726416b`
+- **Python Version & Dependencies**: Python 3.10+, PyTorch with CUDA 12.4, `fair-esm` (ESM3 foundation model), `torch-geometric` (`GINConv`, `global_add_pool`).
+- **Deep-Learning Framework**: PyTorch + ESM3 Evolutionary Language Model + PyG.
+- **Input Data Format**: Requires precomputed protein contact maps (`.npy` files) stored in external Google Drive folders (`{dataset}_npy_contact_maps`) which are not included in the repository.
+- **Training Entry Point**: `main.py`
+- **Prediction Generation Procedure**: Continuous affinity regression.
+- **Pretrained Weights**: Lacks weights; requires external ESM3 checkpoint download and external contact map archives.
+- **CPU/GPU Requirements**: Requires **two 24GB NVIDIA GeForce RTX 4090 GPUs** (documented in repository README).
+- **Missing Files / Broken Imports**: Missing contact map data files, `fair-esm`, `torch_geometric`.
+- **Target Task**: Continuous affinity regression.
+- **Classification**: **NOT FEASIBLE** (Requires unavailable Google Drive data archives, 48GB GPU VRAM, and ESM3 foundation model).
+
+---
+
+### Conclusion & Adherence to Strict Constraints
+Under the established decision rule:
+> *"NOT FEASIBLE: Requires unavailable data, unsupported framework, major rewriting, or GPU resources that are not available. Only proceed with integration if the repository is READY or REPAIRABLE. If no candidate is feasible, stop after the audit and report the findings."*
+
+All five candidate repositories require either compiled C++ libraries unavailable on Python 3.13 Windows (`DeepTGIN`, `GraphTransDTA`), unavailable external structure archives (`GSF-DTA`, `MAFI`), or dedicated GPU acceleration without which CPU execution requires dozens of hours (`DACMF-DTI`, `MAFI`).
+
+Per Constraint 3 (*"Do not claim a model is integrated if its predictions cannot be generated"*), we stop after the audit, document the modular integration code completed for DACMF-DTI in [`models/dacmf.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/models/dacmf.py), and provide the comprehensive audit above.

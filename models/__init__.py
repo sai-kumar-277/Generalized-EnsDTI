@@ -11,6 +11,7 @@ from .dcdti import DeepConvDTI
 from .dpdta import DeepDTA
 from .mdprd import MDeePred
 from .dp import DeepPurpose
+from .dacmf import AttentionDTA
 
 # CPIPrediction is optional — models/cpi.py not included in repository
 try:
@@ -46,6 +47,8 @@ def build_model(name, task, data=None):
         return CPIPrediction(data.fp_num, data.word_num, 10, task)
     elif name == 'dp':
         return DeepPurpose([256+256, 1024, 1024, 512, 1], [26, 32, 64, 96], [4, 8, 12], task)
+    elif name == 'dacmf':
+        return AttentionDTA()
     elif name in ('perceivercpi', 'smtdta'):
         raise NotImplementedError(f"Model '{name}' is not implemented in this repository")
     else:
