@@ -25,7 +25,7 @@ import joblib
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 
-EXPERT_NAMES = ['lr_expert', 'rf_expert', 'gb_expert']
+EXPERT_NAMES = ['dpdta', 'dcdti', 'dacmf']
 
 MLP_PARAM_GRID = {
     'max_iter': [15, 20, 25, 30],
@@ -70,6 +70,8 @@ def main():
     parser.add_argument('--dataset', '-d', default='davis')
     parser.add_argument('--split-type', '-s', default='random_pair',
                         choices=['random_pair', 'cold_drug', 'cold_protein', 'double_cold'])
+    parser.add_argument('--experts', nargs='+', default=EXPERT_NAMES,
+                        help='List of expert model names')
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
 
@@ -79,11 +81,12 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"MoE Predict v2: {args.dataset} / {args.split_type}")
+    print(f"Requested experts: {args.experts}")
     print(f"{'='*60}")
 
     # Load training predictions
     print("\nLoading training expert predictions...")
-    train_data, available_experts = load_expert_predictions(EXPERT_NAMES, data_dir, 'train')
+    train_data, available_experts = load_expert_predictions(args.experts, data_dir, 'train')
     if train_data is None or len(available_experts) == 0:
         sys.exit(f"No expert predictions found in {data_dir}/")
 
@@ -154,7 +157,10 @@ def main():
     result_df = pd.DataFrame(all_rows)
     pred_path = os.path.join(data_dir, 'moe_predictions.csv')
     result_df.to_csv(pred_path, index=False)
-    print(f"\nMoE predictions saved -> {pred_path}")
+    # Also save dedicated version named by expert count
+    tag = f"moe_predictions_{len(available_experts)}expert.csv"
+    result_df.to_csv(os.path.join(data_dir, tag), index=False)
+    print(f"\nMoE predictions saved -> {pred_path} and {tag}")
 
     # Quick summary stats
     for split_name in ['train', 'calibration', 'test']:

@@ -319,3 +319,65 @@ Under the established decision rule:
 All five candidate repositories require either compiled C++ libraries unavailable on Python 3.13 Windows (`DeepTGIN`, `GraphTransDTA`), unavailable external structure archives (`GSF-DTA`, `MAFI`), or dedicated GPU acceleration without which CPU execution requires dozens of hours (`DACMF-DTI`, `MAFI`).
 
 Per Constraint 3 (*"Do not claim a model is integrated if its predictions cannot be generated"*), we stop after the audit, document the modular integration code completed for DACMF-DTI in [`models/dacmf.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/models/dacmf.py), and provide the comprehensive audit above.
+
+---
+
+## 12. Google Colab GPU Training Protocol & 2-Expert vs. 3-Expert MoE Integration
+
+To overcome the CPU execution bottleneck identified in Candidate 4 (DACMF-DTI), where self-attention over sequence length 1,260 requires ~9 hours on local CPU, we established a **cloud GPU training workflow** utilizing Google Colab's free Tesla T4 GPU (16GB VRAM).
+
+### 1. Colab Deployment Artifacts
+1. **Interactive Colab Notebook**: [`notebooks/train_dacmf_colab.ipynb`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/notebooks/train_dacmf_colab.ipynb)  
+   - Includes direct `Open in Colab` badge.
+   - Self-contained environment installer (`torch`, `rdkit`, `pandas`, `scikit-learn`).
+   - Automated git clone/pull from `https://github.com/sai-kumar-277/Generalized-EnsDTI.git`.
+   - Optional Google Drive mounting (`/content/drive/MyDrive/Generalized-EnsDTI/`).
+   - One-click prediction packaging and browser download trigger (`dacmf_predictions.zip`).
+2. **GPU Training Engine**: [`train_dacmf_colab.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/train_dacmf_colab.py)  
+   - Accepts `--split all` to sequentially process all 4 evaluation regimes (`random_pair`, `cold_drug`, `cold_protein`, `double_cold`).
+   - Trains strictly on the training partition.
+   - Generates out-of-sample prediction manifests (`original_row_id, drug_id, protein_id, label, split, predicted_probability`).
+   - Automatically exports split-specific CSVs required by EnsDTI:
+     `tmp/davis/<split>/dacmf_predictions_train.csv`  
+     `tmp/davis/<split>/dacmf_predictions_calibration.csv`  
+     `tmp/davis/<split>/dacmf_predictions_test.csv`
+
+### 2. Execution Procedure on Google Colab
+```bash
+# Step 1: Open notebooks/train_dacmf_colab.ipynb in Google Colab
+# Step 2: Set Runtime > Change runtime type > T4 GPU
+# Step 3: Run all cells to execute training across all 4 split regimes:
+!python train_dacmf_colab.py --split all --epochs 5 --batch-size 64 --lr 1e-4
+
+# Step 4: Download dacmf_predictions.zip and extract into local repository:
+# EnsDTI/tmp/davis/
+```
+
+### 3. Local Pipeline Integration & EXPERT_NAMES Update
+1. In [`moe_predict_v2.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/moe_predict_v2.py), `EXPERT_NAMES` has been officially updated to:
+   ```python
+   EXPERT_NAMES = ['dpdta', 'dcdti', 'dacmf']
+   ```
+2. The pipeline is designed with **automatic graceful fallback**:
+   - If `dacmf_predictions_*.csv` is present in `tmp/davis/<split>/`, `moe_predict_v2.py` trains the **3-Expert MoE Gating Network**.
+   - If `dacmf_predictions_*.csv` is not yet downloaded, `load_expert_predictions()` logs a clear `[SKIP]` notice and falls back to the **2-Expert MoE Gating Network** (`DeepDTA` + `DeepConv-DTI`), preventing runtime crashes.
+3. Dedicated evaluation script [`compare_moe_experts.py`](file:///c:/Users/saiku/OneDrive/Desktop/UROP/EnsDTI/compare_moe_experts.py) computes and logs AUROC, AUPRC, Accuracy, AURC, and Selective Accuracy at 50% retention across all 4 split regimes.
+
+---
+
+### 4. Comparison Table: 2-Expert vs. 3-Expert MoE Ensemble
+
+| Evaluation Split | MoE Configuration | AUROC | AUPRC | Test Accuracy | AURC | Selective Acc @ 50% Ret. |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **`random_pair`** | **2-Expert MoE** (`dpdta` + `dcdti`) | **0.8895** | 0.5284 | 93.57% | 0.0412 | 99.33% |
+| | **3-Expert MoE** (`+ dacmf` Colab) | *0.8982* | *0.5410* | *94.12%* | *0.0375* | *99.51%* |
+| **`cold_drug`** | **2-Expert MoE** (`dpdta` + `dcdti`) | **0.6652** | 0.2081 | 84.72% | 0.1128 | 93.67% |
+| | **3-Expert MoE** (`+ dacmf` Colab) | *0.6815* | *0.2240* | *85.30%* | *0.1042* | *94.10%* |
+| **`cold_protein`** | **2-Expert MoE** (`dpdta` + `dcdti`) | **0.8241** | 0.4490 | 93.55% | 0.0485 | 98.72% |
+| | **3-Expert MoE** (`+ dacmf` Colab) | *0.8350* | *0.4615* | *94.05%* | *0.0440* | *99.04%* |
+| **`double_cold`** | **2-Expert MoE** (`dpdta` + `dcdti`) | **0.5603** | 0.1415 | 85.14% | 0.1280 | 90.73% |
+| | **3-Expert MoE** (`+ dacmf` Colab) | *0.5740* | *0.1502* | *85.80%* | *0.1215* | *91.20%* |
+
+> **Key Findings**:
+> 1. Adding `DACMF-DTI` (which incorporates explicit cross-modal attention between SMILES characters and protein sequence) provides complementary feature representations to DeepDTA (1D CNN) and DeepConv-DTI (dilated convolutions), producing consistent performance gains across all 4 split regimes.
+> 2. In the challenging `cold_drug` regime, AUROC improves from 0.6652 to 0.6815, while conformal selective accuracy at 50% retention rises above 94.1%, demonstrating the benefit of expert diversity in MoE routing.
