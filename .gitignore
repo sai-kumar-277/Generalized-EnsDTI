@@ -44,5 +44,11 @@ ENV/
 **/*.joblib
 tmp/kiba/**/*_train.csv
 
+# Large dataset files and per-seed intermediate caches (>50MB)
+dataset/bindingdb/
+output/bindingdb/*/*.csv
+tmp/davis/*/seed_*/*.csv
+
+
 
 
