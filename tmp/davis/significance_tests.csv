@@ -1,0 +1,13 @@
+split_type,metric,statistic,p_value,effect_size,significant
+random_pair,absolute_error_wilcoxon,13298254.0,0.0,0.712265818310357,True
+random_pair,absolute_error_paired_ttest,17.269632047080865,1.8226648463347354e-65,0.2296095751820411,True
+random_pair,brier_score_paired_ttest,10.436260602588469,1.434418965110629e-25,0.13875601732069873,True
+cold_drug,absolute_error_wilcoxon,2602980.0,1.0,-0.7810650887573964,False
+cold_drug,absolute_error_paired_ttest,-90.70268975137071,1.0,-1.196672055168333,False
+cold_drug,brier_score_paired_ttest,9.425595996704496,3.0271869621375695e-21,0.12435515819377023,True
+cold_protein,absolute_error_wilcoxon,12782466.0,0.0,0.6505681818181819,True
+cold_protein,absolute_error_paired_ttest,18.787772691634075,9.925353807151901e-77,0.2503701407324994,True
+cold_protein,brier_score_paired_ttest,9.06838252299117,8.190201805228272e-20,0.12084733223885488,True
+double_cold,absolute_error_wilcoxon,371322.0,4.366418353622877e-05,0.02097902097902099,True
+double_cold,absolute_error_paired_ttest,6.9081594691072485,4.067546812257575e-12,0.2043333422521053,True
+double_cold,brier_score_paired_ttest,-2.671783353698399,0.9961739031537551,-0.07902747826545722,False
