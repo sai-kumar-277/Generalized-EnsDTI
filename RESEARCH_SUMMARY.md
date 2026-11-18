@@ -51,3 +51,14 @@ Standard conformal prediction (Regimes A & B) catastrophically collapses under e
 ### 4. Primary Limitation and Future Work
 * **Limitation**: The current novelty mechanism relies on binary entity disjointness flags rather than continuous chemical scaffold hopping distance or target binding-site homology.
 * **Future Work**: Integrate continuous distance metrics computed in foundation model latent spaces (e.g., ESM-2 protein embeddings and molecular graph distances) and validate across multi-family target databases such as BindingDB.
+
+---
+
+### 5. Key Academic Citations
+1. **EnsDTI**: Solano-Paucar et al. (2024), GitHub: `https://github.com/solanoon/EnsDTI`.
+2. **DeepDTA**: Öztürk et al., *Bioinformatics* 34(17): i821–i829 (2018).
+3. **DeepConv-DTI**: Lee et al., *PLOS ONE* 14(6): e0217648 (2019).
+4. **DACMF-DTI**: He et al. (2024), GitHub: `https://github.com/hey-xw/DACMF-DTI`.
+5. **Benchmarks**: Davis et al., *Nat. Biotechnol.* 29: 1046 (2011); Tang et al., *J. Chem. Inf. Model.* 54: 735 (2014).
+6. **Conformal Prediction & Shift**: Vovk et al., *Algorithmic Learning in a Random World* (2005); Tibshirani et al., *NeurIPS* (2019).
+
