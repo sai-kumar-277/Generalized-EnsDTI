@@ -38,3 +38,11 @@ ENV/
 
 # Jupyter
 .ipynb_checkpoints
+
+# Model weights and caches
+*.joblib
+**/*.joblib
+tmp/kiba/**/*_train.csv
+
+
+
