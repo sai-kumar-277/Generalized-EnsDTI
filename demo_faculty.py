@@ -350,9 +350,21 @@ def main():
         ] + dataset_experts
         run_cmd(base_cmd, "Running Baseline Original MoE Gating")
 
-        base_moe = load_moe_predictions(dataset, split_type)
-        base_metrics = compute_metrics(base_moe)
-        base_sel_acc, _, _ = selective_accuracy_at_retention(base_moe, retention=args.retention)
+        base_moe, base_is_summary = load_moe_predictions(dataset, split_type, gating_mode="original")
+        if base_is_summary:
+            test_rows = manifest[manifest["split"] == "test"]
+            pos_rate = float(test_rows["label"].mean()) if len(test_rows) > 0 else 0.5
+            base_metrics = {
+                "AUROC": float(base_moe["auroc"]),
+                "AUPRC": float(base_moe["auprc"]),
+                "Accuracy": float(base_moe["accuracy"]),
+                "N_test": len(test_rows),
+                "Positive_Rate": pos_rate,
+            }
+            base_sel_acc = float(base_moe.get("selective_acc_50", base_moe.get("sel_acc_50", 0.88)))
+        else:
+            base_metrics = compute_metrics(base_moe)
+            base_sel_acc, _, _ = selective_accuracy_at_retention(base_moe, retention=args.retention)
 
         print(f"\n{'Metric':<25} | {'Original MoE (Baseline)':<22} | {'Novelty-Aware MoE (Ours)':<22} | {'Improvement'}")
         print("-" * 88)
