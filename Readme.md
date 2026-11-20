@@ -8,33 +8,14 @@
 [![Conformal Safety](https://img.shields.io/badge/Conformal%20Coverage-Finite--Sample%20Guaranteed%20(90%25%2B)-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An audited, modular, and mathematically grounded re-engineering of **EnsDTI**, establishing rigorous entity-level leakage control, resolving Mixture-of-Experts (MoE) optimization failures under distribution shift, and providing finite-sample conformal uncertainty quantification for zero-shot drug–target virtual screening.
+An audited, modular, and mathematically grounded deep learning framework for **Drug–Target Interaction (DTI) Prediction**, establishing rigorous entity-level leakage control, resolving Mixture-of-Experts (MoE) gating optimization failures under distribution shift, and providing finite-sample conformal uncertainty quantification for zero-shot virtual screening.
 
 ---
 
-## 📑 Comprehensive Technical Report (PDF)
+## ⚡ Quickstart & Model Usage
 
-A complete 8-page publication-grade technical report with high-resolution figures, master tables, mathematical derivations, and detailed diagnostic walkthroughs is available in the repository root:
-
-👉 **[EnsDTI_Comprehensive_Research_Report.pdf](EnsDTI_Comprehensive_Research_Report.pdf)** *(1.69 MB, NeurIPS/ICML Standard)*
-
----
-
-## ⚡ Quickstart & Interactive Demos
-
-### 1. Interactive Faculty Demonstration (Sub-Second Execution)
-Evaluate any pre-computed leakage-controlled test split with side-by-side comparative tables against baseline unconstrained gating:
-```bash
-# Evaluate Davis under Double-Cold shift with baseline comparison:
-python demo_faculty.py --dataset davis --split-type double_cold --compare-baseline
-
-# Evaluate KIBA or BindingDB:
-python demo_faculty.py --dataset kiba --split-type cold_drug --compare-baseline
-python demo_faculty.py --dataset bindingdb --split-type double_cold --compare-baseline
-```
-
-### 2. Universal External Dataset Evaluation (Test Any Uploaded Dataset)
-Score *any* external drug–target dataset (CSV, TSV, or space-delimited TXT like TransformerCPI):
+### 1. Universal External Dataset Evaluation (Test Any Uploaded Dataset)
+Score *any* external drug–target dataset (CSV, TSV, or space-delimited TXT like TransformerCPI) using the trained EnsDTI model:
 ```bash
 # Zero-shot inference & conformal screening on an external file:
 python test_custom_dataset.py "path/to/any_dataset.txt"
@@ -46,19 +27,34 @@ python test_custom_dataset.py dataset/sample_external_dataset.csv
 python test_custom_dataset.py "path/to/any_dataset.txt" --mode train --split-type double_cold
 ```
 
-### 3. Recompile the Technical Report PDF
-Generate a fresh publication-grade PDF report with updated figures and metrics:
+### 2. Interactive Demonstration & Comparative Verification
+Evaluate any pre-computed leakage-controlled test split with side-by-side comparative validation against baseline unconstrained gating:
 ```bash
-python generate_comprehensive_pdf.py
+# Evaluate Davis under Double-Cold shift with baseline comparison:
+python demo_faculty.py --dataset davis --double-cold --compare-baseline
+
+# Evaluate with sub-second execution:
+python demo_faculty.py davis double-cold --compare-baseline --skip-pipeline
+
+# Evaluate KIBA or BindingDB:
+python demo_faculty.py kiba cold-drug --compare-baseline
+python demo_faculty.py bindingdb double-cold --compare-baseline
+```
+
+### 3. Training Deep Expert Models from Scratch
+Train native PyTorch deep models on strictly partitioned, leakage-controlled splits:
+```bash
+python train_deep_experts.py --dataset davis --split-type double_cold --model dpdta
+python train_deep_experts.py --dataset davis --split-type double_cold --model dcdti
 ```
 
 ---
 
-## 🎯 Headline Claim & Executive Summary
+## 🎯 Core Model Innovations & Headline Findings
 
-> **Headline Finding:** Under entity-level distribution shift, standard unconstrained Mixture-of-Experts (MoE) gating networks for drug–target interaction prediction suffer from **optimization sign inversion** on novel drugs (collapsing AUROC to $0.2380$ on Seed 999 with negative expert rank correlation) and **destructive co-occurrence overfitting** on novel pairs (performing worse than single experts by $-0.09$ AUROC). Furthermore, standard inductive conformal prediction suffers a catastrophic **$-31.09\%$ coverage deficit**.
+> **The Problem:** Under entity-level distribution shift, standard unconstrained Mixture-of-Experts (MoE) gating networks for drug–target interaction prediction suffer from **optimization sign inversion** on novel drugs (collapsing AUROC to $0.2380$ on Seed 999 with negative expert rank correlation) and **destructive co-occurrence overfitting** on novel pairs (performing worse than single experts by $-0.09$ AUROC). Furthermore, standard inductive conformal prediction suffers a catastrophic **$-31.09\%$ coverage deficit**.
 >
-> We eliminate these foundational failures through:
+> **The Solutions:**
 > 1. **Novelty-Aware Regularized Gating:** Conditions routing on entity novelty states alongside L2 regularization ($\alpha_{\text{L2}} = 1.0$), collapsing multi-seed variance by **over 100-fold** ($\sigma = 0.2810 \to 0.0027, p < 0.0001$) and proving **Theorem 1 (Convex Consensus Collapse)** to achieve a statistically significant **$+0.1322$ AUROC gain** with completely disjoint 95% confidence intervals on `double_cold` across 10 random seeds.
 > 2. **Cold-Aware Conformal Prediction (Regime C):** Aligns calibration nonconformity distributions to entity shift, restoring valid finite-sample coverage guarantees ($1 - \alpha$) within $1-4\%$ of nominal across all significance levels.
 > 3. **Tri-Dataset External Validation:** Verified across **Davis** ($N=15,358$), **KIBA** ($N=117,929$), **BindingDB** ($N=61,258$, 49,744 compounds, 812 targets), and **TransformerCPI** ($N=6,728$).
@@ -148,7 +144,7 @@ Prediction set $S(x) = \{y \in \{0, 1\} : p_y(x) > \alpha\}$ guarantees finite-s
 
 ---
 
-## 📊 Master Empirical Results
+## 📊 Benchmark Results
 
 ### Table 1: 10-Seed Performance Comparison on Davis Benchmark
 Validated across 10 random seeds (`{42, 123, 999, 7, 314, 555, 777, 888, 101, 202}`):
@@ -185,21 +181,7 @@ Validated across 10 random seeds (`{42, 123, 999, 7, 314, 555, 777, 888, 101, 20
 
 ---
 
-## 🖼️ Key Figures Gallery
-
-| Multi-Seed 10-Seed Trajectories | Mechanistic Gating Analysis |
-| :---: | :---: |
-| ![10-Seed Multi-Regime](output/davis/gating_10seed_per_seed.png) | ![Mechanistic Analysis](output/davis/gating_mechanistic_analysis.png) |
-| *Figure 1: $>100\times$ variance collapse on cold_drug and disjoint 95% CIs on double_cold across 10 random seeds.* | *Figure 2: Dynamic routing weight allocation surface and $10^4\times$ reduction in Hessian condition number.* |
-
-| Conformal Coverage Curves ($\alpha \in [0.05, 0.30]$) | BindingDB Benchmark Generalization |
-| :---: | :---: |
-| ![Conformal Alpha Curve](output/davis/cold_aware_icp_coverage_alpha_curve.png) | ![BindingDB Comparison](output/bindingdb/bindingdb_gating_comparison.png) |
-| *Figure 3: Collapse of standard calibration (red) and exact restoration under Cold-Aware Regime C (blue).* | *Figure 4: Novelty-Aware Gating maintains superiority across all 4 regimes on 61,258 BindingDB interactions.* |
-
----
-
-## 💻 CLI Tools & API Usage
+## 💻 CLI Usage Guide
 
 ### `demo_faculty.py` (Interactive Demonstration)
 ```text
@@ -209,7 +191,7 @@ usage: demo_faculty.py [-h] [--dataset {davis,kiba,bindingdb}]
                        [--skip-pipeline] [--alpha ALPHA] [--retention RETENTION]
                        [--compare-baseline]
 ```
-* Supports hyphen/underscore normalization (e.g. `--split-type double-cold`).
+* Supports hyphen/underscore normalization (e.g. `--split-type double-cold`, `--double-cold`, or positional `davis double-cold`).
 * Use `--compare-baseline` for side-by-side comparative validation against unconstrained gating.
 * Use `--skip-pipeline` for sub-second cached evaluation.
 
@@ -222,7 +204,7 @@ usage: test_custom_dataset.py [-h] [input_path] [--input-file INPUT_FILE]
 ```
 * **Auto-Sniffing Delimiters:** Ingests CSV, TSV, or space-separated TXT without manual formatting.
 * **Content Heuristics:** Auto-detects SMILES syntax and FASTA sequence characters even without header rows.
-* **Conformal Decision Sets:** Exports predictions with explicit `ACCEPT (Active)`, `ACCEPT (Inactive)`, and `REVIEW (Uncertain)` recommendations to [`output/custom_dataset_predictions.csv`](output/custom_dataset_predictions.csv).
+* **Conformal Decision Sets:** Exports predictions with explicit `ACCEPT (Active)`, `ACCEPT (Inactive)`, and `REVIEW (Uncertain)` recommendations.
 
 ---
 
@@ -230,33 +212,31 @@ usage: test_custom_dataset.py [-h] [input_path] [--input-file INPUT_FILE]
 
 ```text
 Generalized-EnsDTI/
-├── EnsDTI_Comprehensive_Research_Report.pdf  # 8-page publication-grade PDF technical report
-├── generate_comprehensive_pdf.py             # ReportLab script compiling the PDF
-├── demo_faculty.py                           # Interactive CLI for faculty demonstration
+├── demo_faculty.py                           # Interactive CLI for demonstration and verification
 ├── test_custom_dataset.py                    # Universal external dataset evaluation pipeline
 ├── moe_predict_v2.py                         # Novelty-Aware MoE router implementation
 ├── icp_predict_v2.py                         # Cold-Aware Conformal Uncertainty calibration
 ├── train_deep_experts.py                     # Native PyTorch trainer for deep expert models
 ├── generate_split.py                         # Strict 3-way leakage-controlled split generator
 ├── audit_splits.py                           # Mathematical verification of split disjointness
-├── FINAL_EVALUATION_REPORT.md                # 24-section comprehensive evaluation report
-├── RESEARCH_SUMMARY.md                       # High-level executive research summary
-├── PAPER_DRAFT.md                            # Complete NeurIPS/ICML manuscript draft
-├── LIMITATIONS_AND_FUTURE_WORK.md            # Detailed analysis of boundaries and extensions
+├── expert_predict.py                         # Expert model inference script
+├── main.py                                   # Main entry point for training pipelines
+├── config.py                                 # Hyperparameters and pipeline configuration
+├── requirements.txt                          # Python dependencies
+├── .gitignore                                # Excludes local reports, caches, and run outputs
+├── Readme.md                                 # Model overview and documentation
 ├── dataset/
 │   ├── sample_external_dataset.csv           # Built-in FDA-approved reference test pairs
-│   ├── davis/                                # Davis benchmark dataset
-│   ├── kiba/                                 # KIBA benchmark dataset
-│   └── human/                                # TransformerCPI Human benchmark dataset
-├── models/
-│   ├── dpdta.py                              # DeepDTA native PyTorch architecture
-│   ├── dcdti.py                              # DeepConv-DTI native PyTorch architecture
-│   └── dacmf.py                              # DACMF-DTI cross-modal attention architecture
-└── output/
-    ├── custom_dataset_predictions.csv        # Conformal predictions on external dataset
-    ├── davis/                                # Multi-seed logs, figures, and conformal curves
-    ├── kiba/                                 # KIBA benchmark predictions and comparisons
-    └── bindingdb/                            # BindingDB benchmark predictions and comparisons
+│   ├── davis/data.csv                        # Davis benchmark dataset
+│   ├── kiba/data.csv                         # KIBA benchmark dataset
+│   └── human/data.csv                        # TransformerCPI Human benchmark dataset
+└── models/
+    ├── dpdta.py                              # DeepDTA native PyTorch architecture
+    ├── dcdti.py                              # DeepConv-DTI native PyTorch architecture
+    ├── dacmf.py                              # DACMF-DTI cross-modal attention architecture
+    ├── dp.py                                 # DeepPurpose MPNN architecture
+    ├── gifdti.py                             # Lightweight attention architecture
+    └── embedding.py                          # Character and sequence embedding modules
 ```
 
 ---

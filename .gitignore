@@ -42,13 +42,26 @@ ENV/
 # Model weights and caches
 *.joblib
 **/*.joblib
-tmp/kiba/**/*_train.csv
 
-# Large dataset files and per-seed intermediate caches (>50MB)
+# Run outputs and temporary caches
+output/
+tmp/
+scratch/
+
+# Internal Research Reports, Paper Drafts & Presentation Deliverables (Local Only)
+*.pdf
+*.html
+FINAL_EVALUATION_REPORT.md
+RESEARCH_SUMMARY.md
+PAPER_DRAFT.md
+LIMITATIONS_AND_FUTURE_WORK.md
+QA_REPORT.md
+CONSISTENCY_CHECK.md
+REPRODUCIBILITY_AUDIT.md
+SUBMISSION_READINESS_CHECKLIST.md
+PRESENTATION_OUTLINE.md
+build_paper_documents.py
+generate_comprehensive_pdf.py
+
+# Large external datasets (>50MB)
 dataset/bindingdb/
-output/bindingdb/*/*.csv
-tmp/davis/*/seed_*/*.csv
-
-
-
-
