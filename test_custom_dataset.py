@@ -414,6 +414,8 @@ def train_and_benchmark(df: pd.DataFrame, smi_col: str, seq_col: str, label_col:
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Test any external or uploaded DTI dataset with EnsDTI")
+    parser.add_argument("input_path", nargs="?", default=None,
+                        help="Path to custom CSV / TSV / space-separated TXT dataset file (can be passed as positional argument or via --input-file)")
     parser.add_argument("--input-file", "-i", type=str, default=None,
                         help="Path to custom CSV / TSV / space-separated TXT dataset file")
     parser.add_argument("--output-file", "-o", type=str, default="output/custom_dataset_predictions.csv",
@@ -452,10 +454,13 @@ def main():
               f"  python test_custom_dataset.py --input-file {sample_path}\n")
         return
 
-    if args.input_file is None:
-        print("[ERROR] Please provide --input-file <path_to_file>")
+    target_input = args.input_path if args.input_path else args.input_file
+    if target_input is None:
+        print("[ERROR] Please provide path to dataset file: python test_custom_dataset.py <path_to_file>")
         parser.print_help()
         sys.exit(1)
+
+    args.input_file = target_input
 
     if not os.path.exists(args.input_file):
         print(f"[ERROR] Input file not found: {args.input_file}")
