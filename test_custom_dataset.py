@@ -65,22 +65,22 @@ _mfp_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=DRUG_FP_BI
 
 SMILES_COL_CANDIDATES = [
     'smiles', 'smi', 'canonical_smiles', 'drug_smiles', 'compound_smiles',
-    'drug', 'compound', 'ligand', 'molecule', 'lig'
+    'molecule_smiles'
 ]
 SEQ_COL_CANDIDATES = [
     'sequence', 'seq', 'target_sequence', 'protein_sequence', 'fasta',
-    'target_seq', 'protein', 'target', 'pro'
+    'target_seq', 'prot_seq'
 ]
 DRUG_ID_CANDIDATES = [
-    'drug_name', 'drug_id', 'compound_id', 'molecule_id', 'chembl_id', 'pubchem_id',
-    'lig_id', 'id', 'name'
+    'lig', 'drug_name', 'drug_id', 'compound_id', 'molecule_id', 'chembl_id', 'pubchem_id',
+    'lig_id', 'id', 'name', 'compound', 'drug', 'ligand'
 ]
 TARGET_ID_CANDIDATES = [
-    'protein_name', 'target_name', 'protein_id', 'target_id', 'uniprot_id', 'gene_id', 'accession',
-    'pro_id'
+    'pro', 'protein_name', 'target_name', 'protein_id', 'target_id', 'uniprot_id', 'gene_id', 'accession',
+    'pro_id', 'protein', 'target'
 ]
 LABEL_COL_CANDIDATES = [
-    'label', 'y', 'activity', 'binding', 'class', 'hit', 'active',
+    'lab', 'label', 'labels', 'y', 'activity', 'binding', 'class', 'hit', 'active', 'affinity',
     'pkd', 'pki', 'pic50', 'kd', 'ki', 'ic50', 'score'
 ]
 
@@ -176,53 +176,121 @@ def load_dataset_file(file_path: str, delimiter: str = None) -> pd.DataFrame:
     return df
 
 # ---------------------------------------------------------------------------
-# Column Auto-Detection
+# Column Auto-Detection & Content Heuristics
 # ---------------------------------------------------------------------------
+def is_likely_smiles(series: pd.Series) -> bool:
+    try:
+        sample = series.dropna().astype(str).head(10)
+        if len(sample) == 0:
+            return False
+        valid = 0
+        for s in sample:
+            s = s.strip()
+            if len(s) > 2 and Chem.MolFromSmiles(s) is not None:
+                valid += 1
+        return (valid / len(sample)) >= 0.4
+    except Exception:
+        return False
+
+def is_likely_sequence(series: pd.Series) -> bool:
+    try:
+        sample = series.dropna().astype(str).head(10)
+        if len(sample) == 0:
+            return False
+        amino_acids = set('ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy')
+        valid = 0
+        for s in sample:
+            s = s.strip()
+            if len(s) >= 15 and (sum(1 for c in s if c in amino_acids) / len(s) >= 0.80):
+                valid += 1
+        return (valid / len(sample)) >= 0.4
+    except Exception:
+        return False
+
+def is_likely_label(series: pd.Series) -> bool:
+    try:
+        sample = series.dropna().head(30)
+        if len(sample) == 0:
+            return False
+        numeric = pd.to_numeric(sample, errors='coerce')
+        valid_numeric = numeric.dropna()
+        if len(valid_numeric) / len(sample) >= 0.8:
+            unique_vals = set(valid_numeric.unique())
+            if unique_vals.issubset({0, 1, 0.0, 1.0}):
+                return True
+            if all(0 <= v <= 30 for v in valid_numeric):
+                return True
+    except Exception:
+        pass
+    return False
+
 def detect_columns(df: pd.DataFrame):
     cols_lower = {col.lower(): col for col in df.columns}
     
-    # SMILES
+    # 1. SMILES Detection
     smi_col = None
     for cand in SMILES_COL_CANDIDATES:
         if cand in cols_lower:
-            smi_col = cols_lower[cand]
-            break
-            
-    # Sequence
+            candidate = cols_lower[cand]
+            if is_likely_smiles(df[candidate]):
+                smi_col = candidate
+                break
+    if smi_col is None:
+        for col in df.columns:
+            if is_likely_smiles(df[col]):
+                smi_col = col
+                break
+                
+    # 2. Sequence Detection
     seq_col = None
     for cand in SEQ_COL_CANDIDATES:
         if cand in cols_lower:
-            seq_col = cols_lower[cand]
-            break
+            candidate = cols_lower[cand]
+            if candidate != smi_col and is_likely_sequence(df[candidate]):
+                seq_col = candidate
+                break
+    if seq_col is None:
+        for col in df.columns:
+            if col != smi_col and is_likely_sequence(df[col]):
+                seq_col = col
+                break
 
-    # Drug ID
-    drug_id_col = None
-    for cand in DRUG_ID_CANDIDATES:
-        if cand in cols_lower and cols_lower[cand] != smi_col:
-            drug_id_col = cols_lower[cand]
-            break
-
-    # Protein ID
-    protein_id_col = None
-    for cand in TARGET_ID_CANDIDATES:
-        if cand in cols_lower and cols_lower[cand] != seq_col:
-            protein_id_col = cols_lower[cand]
-            break
-
-    # Label
+    # 3. Label Detection
     label_col = None
     for cand in LABEL_COL_CANDIDATES:
         if cand in cols_lower:
-            label_col = cols_lower[cand]
-            break
+            candidate = cols_lower[cand]
+            if candidate != smi_col and candidate != seq_col and is_likely_label(df[candidate]):
+                label_col = candidate
+                break
+    if label_col is None:
+        for col in df.columns:
+            if col != smi_col and col != seq_col and is_likely_label(df[col]):
+                label_col = col
+                break
 
-    # Fallback to positional mapping if columns are unlabelled
-    if smi_col is None and len(df.columns) >= 2:
+    # 4. Drug ID & Protein ID Detection
+    drug_id_col = None
+    for cand in DRUG_ID_CANDIDATES:
+        if cand in cols_lower:
+            candidate = cols_lower[cand]
+            if candidate != smi_col and candidate != seq_col and candidate != label_col:
+                drug_id_col = candidate
+                break
+
+    protein_id_col = None
+    for cand in TARGET_ID_CANDIDATES:
+        if cand in cols_lower:
+            candidate = cols_lower[cand]
+            if candidate != smi_col and candidate != seq_col and candidate != label_col and candidate != drug_id_col:
+                protein_id_col = candidate
+                break
+
+    # 5. Safe positional fallbacks
+    if smi_col is None and len(df.columns) >= 1:
         smi_col = df.columns[0]
     if seq_col is None and len(df.columns) >= 2:
-        seq_col = df.columns[1]
-    if label_col is None and len(df.columns) >= 3:
-        label_col = df.columns[2]
+        seq_col = [c for c in df.columns if c != smi_col][0]
 
     return smi_col, seq_col, drug_id_col, protein_id_col, label_col
 
