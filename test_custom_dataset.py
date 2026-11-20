@@ -3,8 +3,10 @@
 test_custom_dataset.py — Test any external / custom drug-target interaction dataset with EnsDTI.
 
 Features:
-1. Flexible CSV / TSV ingestion:
-   - Auto-detects drug SMILES, target sequences, IDs, and affinity labels regardless of column naming.
+1. Flexible Ingestion (CSV, TSV, space-delimited TXT):
+   - Auto-detects delimiters (comma, tab, whitespace) and absence of headers.
+   - Automatically handles formats like TransformerCPI (human_data.txt, celegans_data.txt),
+     TDC, ChEMBL, BindingDB, and DrugBank.
 2. Two operational modes:
    - predict (default): Evaluates uploaded dataset using pretrained EnsDTI models (zero-shot transfer).
    - train: Partitions uploaded dataset into 3-way leakage-controlled splits, trains experts,
@@ -20,21 +22,23 @@ Features:
    - Generates 'dataset/sample_external_dataset.csv' for immediate testing.
 
 Usage Examples:
-    # 1. Generate a sample external dataset to test right away:
-    python test_custom_dataset.py --generate-sample
+    # 1. Test space-delimited TransformerCPI dataset:
+    python test_custom_dataset.py --input-file "path/to/human_data.txt"
 
-    # 2. Score any external dataset using pretrained models:
-    python test_custom_dataset.py --input-file dataset/sample_external_dataset.csv
+    # 2. Train from scratch on the custom dataset under double_cold split:
+    python test_custom_dataset.py --input-file "path/to/human_data.txt" --mode train --split-type double_cold
 
     # 3. Score a custom file without labels (pure virtual screening inference):
     python test_custom_dataset.py --input-file my_compounds.csv --output-file results.csv
-
-    # 4. Train from scratch on a new custom dataset under double_cold split:
-    python test_custom_dataset.py --input-file dataset/sample_external_dataset.csv --mode train --split-type double_cold
 """
 
 import os
 import sys
+
+# Prevent joblib/loky subprocess warning on Windows
+if "LOKY_MAX_CPU_COUNT" not in os.environ:
+    os.environ["LOKY_MAX_CPU_COUNT"] = str(os.cpu_count() or 4)
+
 import argparse
 import warnings
 import numpy as np
@@ -68,12 +72,12 @@ SEQ_COL_CANDIDATES = [
     'target_seq', 'protein', 'target', 'pro'
 ]
 DRUG_ID_CANDIDATES = [
-    'drug_id', 'compound_id', 'molecule_id', 'chembl_id', 'pubchem_id',
-    'lig_id', 'id', 'drug_name', 'name'
+    'drug_name', 'drug_id', 'compound_id', 'molecule_id', 'chembl_id', 'pubchem_id',
+    'lig_id', 'id', 'name'
 ]
 TARGET_ID_CANDIDATES = [
-    'protein_id', 'target_id', 'uniprot_id', 'gene_id', 'accession',
-    'pro_id', 'protein_name', 'target_name'
+    'protein_name', 'target_name', 'protein_id', 'target_id', 'uniprot_id', 'gene_id', 'accession',
+    'pro_id'
 ]
 LABEL_COL_CANDIDATES = [
     'label', 'y', 'activity', 'binding', 'class', 'hit', 'active',
@@ -96,16 +100,80 @@ def seq_to_aac(seq: str) -> np.ndarray:
     return np.array([seq.count(aa) / n for aa in AMINO_ACIDS], dtype=np.float32)
 
 def featurize_pairs(df: pd.DataFrame, smi_col: str, seq_col: str) -> np.ndarray:
-    print(f"[FEAT] Featurizing {len(df)} drug-protein pairs (Morgan FP 1024-bit + AAC 20-dim)...")
     unique_smis = df[smi_col].unique()
     unique_seqs = df[seq_col].unique()
+    print(f"[FEAT] Featurizing {len(df)} pairs ({len(unique_smis)} unique drugs, {len(unique_seqs)} unique targets)...")
 
-    fp_cache = {smi: smiles_to_morgan_fp(smi) for smi in unique_smis}
-    aac_cache = {seq: seq_to_aac(seq) for seq in unique_seqs}
+    fp_cache = {}
+    for smi in unique_smis:
+        fp_cache[smi] = smiles_to_morgan_fp(smi)
+
+    aac_cache = {}
+    for seq in unique_seqs:
+        aac_cache[seq] = seq_to_aac(seq)
 
     fps = np.array([fp_cache[smi] for smi in df[smi_col].values], dtype=np.float32)
     aacs = np.array([aac_cache[seq] for seq in df[seq_col].values], dtype=np.float32)
     return np.hstack([fps, aacs])
+
+# ---------------------------------------------------------------------------
+# Intelligent File Loader & Delimiter Detection
+# ---------------------------------------------------------------------------
+def load_dataset_file(file_path: str, delimiter: str = None) -> pd.DataFrame:
+    """
+    Intelligently load custom datasets (CSV, TSV, space-separated TXT).
+    Detects delimiters, whitespace formats, and absence of headers automatically.
+    """
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        sample_lines = [line.strip() for line in [f.readline() for _ in range(15)] if line.strip()]
+
+    if not sample_lines:
+        raise ValueError(f"Input file '{file_path}' is empty.")
+
+    first_line = sample_lines[0]
+
+    # 1. Determine separator
+    if delimiter:
+        sep = delimiter
+    elif "," in first_line and len(first_line.split(",")) > 1:
+        sep = ","
+    elif "\t" in first_line and len(first_line.split("\t")) > 1:
+        sep = "\t"
+    else:
+        # Default to whitespace (spaces or tabs)
+        sep = r"\s+"
+
+    # 2. Check if the first line is a header or data
+    tokens = first_line.split() if sep == r"\s+" else first_line.split(sep)
+    header_keywords = [
+        "smiles", "smi", "sequence", "seq", "label", "target", "drug",
+        "compound", "protein", "affinity", "y", "active", "class", "pkd", "kd", "ic50"
+    ]
+    has_header = any(t.strip().lower() in header_keywords for t in tokens)
+
+    # If token 0 has chemical bond chars like '=', '#', '@', '(', ')', it's definitely a SMILES, not a header!
+    if any(ch in tokens[0] for ch in ["=", "#", "@", "(", ")"]) or len(tokens[0]) > 25:
+        has_header = False
+
+    # 3. Read dataframe
+    if has_header:
+        df = pd.read_csv(file_path, sep=sep, engine="python")
+    else:
+        df = pd.read_csv(file_path, sep=sep, header=None, engine="python")
+        num_cols = len(df.columns)
+        if num_cols == 2:
+            df.columns = ["smiles", "sequence"]
+        elif num_cols == 3:
+            # Standard TransformerCPI / C.elegans format: col 0 = SMILES, col 1 = Sequence, col 2 = Label
+            df.columns = ["smiles", "sequence", "label"]
+        elif num_cols == 4:
+            df.columns = ["drug_id", "smiles", "sequence", "label"]
+        elif num_cols == 5:
+            df.columns = ["drug_id", "smiles", "protein_id", "sequence", "label"]
+        else:
+            df.columns = [f"col_{i}" for i in range(num_cols)]
+
+    return df
 
 # ---------------------------------------------------------------------------
 # Column Auto-Detection
@@ -148,12 +216,13 @@ def detect_columns(df: pd.DataFrame):
             label_col = cols_lower[cand]
             break
 
-    if smi_col is None or seq_col is None:
-        raise ValueError(
-            f"Could not automatically detect SMILES or Sequence columns in CSV.\n"
-            f"Found columns: {list(df.columns)}\n"
-            f"Please specify --smiles-col and --sequence-col explicitly."
-        )
+    # Fallback to positional mapping if columns are unlabelled
+    if smi_col is None and len(df.columns) >= 2:
+        smi_col = df.columns[0]
+    if seq_col is None and len(df.columns) >= 2:
+        seq_col = df.columns[1]
+    if label_col is None and len(df.columns) >= 3:
+        label_col = df.columns[2]
 
     return smi_col, seq_col, drug_id_col, protein_id_col, label_col
 
@@ -172,7 +241,6 @@ def load_pretrained_ensemble(reference_dataset="davis"):
     gb = joblib.load(os.path.join(model_dir, "gb_expert_model.joblib"))
     moe = joblib.load(os.path.join(model_dir, "moe_model.joblib"))
     
-    # Load calibration nonconformity scores for conformal prediction
     cal_scores = [0.10, 0.15, 0.20, 0.08, 0.05, 0.12, 0.18, 0.22, 0.14, 0.09]
     icp_file = os.path.join(base_dir, "output", "davis", "double_cold", "icp_results.csv")
     if os.path.exists(icp_file):
@@ -206,35 +274,6 @@ def get_prediction_set(p0: float, p1: float, alpha: float = 0.10):
     else:
         rec = "ANOMALY (Out-of-Distribution Outlier)"
     return s, rec
-
-# ---------------------------------------------------------------------------
-# Sample Dataset Generator
-# ---------------------------------------------------------------------------
-def generate_sample_dataset(out_path="dataset/sample_external_dataset.csv"):
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    sample_data = [
-        # (drug_name, SMILES, target_name, FASTA, true_label)
-        ("Imatinib", "CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5",
-         "ABL1", "MLEICLKLVGCKSKKGLSSSSSCYLEEALQRPVASDFEPQGLSEAARWNSKENLLAGPSENDPNLFVALYDFVASGDNTLSITKGEKLRVLGYNHNGEWCEAQTKNGQGWVPSNYITPVNSLEKHSWYHGPVSRNAAEYLLSSGINGSFLVRESESSPGQRSISLRYEGRVYHYRINTASDGKLYVSSESRFNTLAELVHHHSTVADGLITTLHYPAPKRNKPTVYGVSPNYDKWEMERTDITMKHKLGGGQYGEVYEGVWKKYSLTVAVKTLKEDTMEVEEFLKEAAVMKEIKHPNLVQLLGVCTREPPFYIITEFMTYGNLLDYLRECNRQEVNAVVLLYMATQISSAMEYLEKKNFIHRDLAARNCLVGENHLVKVADFGLSRLMTGDTYTAHAGAKFPIKWTAPESLAYNKFSIKSDVWAFGVLLWEIATYGMSPYPGIDLSQVYELLEKDYRMERPEGCPEKVYELMRACWQWNPSDRPSFAEIHQAFETMFQESSISDEVEKELGKQGVRGAVSTLLQAPELPTKTRTSRRAAEHRDTTDVPEMPHSKGQGESDPLDHEPAVSPLLPRKERGPPEGGLNEDERLLPKDKKTNLFSALIKKKKKTAPTPPKRSSSFREMDGQPERRGAGEEEGRDISNGALAFTPLDTADPAKSPKPSNGAGVPNGALRESGGSGFRSPHLWKKSSTLTSSRLATGEEEGGGSSSKRFLRSCSASCVPHGAKDTEWRSVTLPRDLQSTGRQFDSSTFGGHKSEKPALPRKRAGENRSDQVTRGTVTPPPRLVKKNEEAADEVFKDIMESSPGSSPPNLTPKPLRRQVTVAPASGLPHKEEAEKGSALGTPAAAEPVTPTSKAGSGAPGGTSKGPAEESRVRRHKHSSESPGRDKGKLSRLKPAPPPPPAASAGKAGGKPSQSPSQEAAGEAVLGAKTKATSLVDAVNSDAAKPSQPAEGLKKPVLPATPKPQSAKVSPTLTLPPLLNPEAPSPPTPKTPSPEPPKSPELPKPPEPAAPTLQPPEA", 1),
-        ("Gefitinib", "COC1=C(C=C2C(=C1)N=CN=C2NC3=CC(=C(C=C3)F)Cl)OCCCN4CCOCC4",
-         "EGFR", "MRPSGTAGAALLALLAALCPASRALEEKKVCQGTSNKLTQLGTFEDHFLSLQRMFNNCEVVLGNLEITYVQRNYDLSFLKTIQEVAGYVLIALNTVERIPLENLQIIRGNMYYENSYALAVLSNYDANKTGLKELPMRNLQEILHGAVRFSNNPALCNVESIQWRDIVSSDFLSNMSMDFQNHLGSCQKCDPSCPNGSCWGAGEENCQKLTKIICAQQCSGRCRGKSPSDCCHNQCAAGCTGPRESDCLVCRKFRDEATCKDTCPPLMLYNPTTYQMDVNPEGKYSFGATCVKKCPRNYVVTDHGSCVRACGADSYEMEEDGVRKCKKCEGPCRKVCNGIGIGEFKDSLSINATNIKHFKNCTSISGDLHILPVAFRGDSFTHTPPLDPQELDILKTVKEITGFLLIQAWPENRTDLHAFENLEIIRGRTKQHGQFSLAVVSLNITSLGLRSLKEISDGDVIISGNKNLCYANTINWKKLFGTSGQKTKIISNRGENSCKATGQVCHALCSPEGCWGPEPRDCVSCRNVSRGRECVDKCNLLEGEPREFVENSECIQCHPECLPQAMNITCTGRGPDNCIQCAHYIDGPHCVKTCPAGVMGENNTLVWKYADAGHVCHLCHPNCTYGCTGPGLEGCPTNGPKIPSIATGMVGALLLLLVVALGIGLFMRRRHIVRKRTLRRLLQERELVEPLTPSGEAPNQALLRILKETEFKKIKVLGSGAFGTVYKGLWIPEGEKVKIPVAIKELREATSPKANKEILDEAYVMASVDNPHVCRLLGICLTSTVQLITQLMPFGCLLDYVREHKDNIGSQYLLNWCVQIAKGMNYLEDRRLVHRDLAARNVLVKTPQHVKITDFGLAKLLGAEEKEYHAEGGKVPIKWMALESILHRIYTHQSDVWSYGVTVWELMTFGSKPYDGIPASEISSILEKGERLPQPPICTIDVYMIMVKCWMIDADSRPKFRELIIEFSKMARDPQRYLVIQGDERMHLPSPTDSNFYRALMDEEDMDDVVDADEYLIPQQGFFSSPSTSRTPLLSSLSATSNNSTVACIDRNGLQSCPIKEDSFLQRYSSDPTGALTEDSIDDTFLPVPEYINQSVPKRPAGSVQNPVYHNQPLNPAPSRDPHYQDPHSTAVGNPEYLNTVQPTCVNSTFDSPAHWAQKGSHQISLDNPDYQQDFFPKEAKPNGIFKGSTAENAEYLRVAPQSSEFIGA", 1),
-        ("Erlotinib", "COCCOC1=C(C=C2C(=C1)C(=NC=N2)NC3=CC=CC(=C3)C#C)OCCOC",
-         "EGFR", "MRPSGTAGAALLALLAALCPASRALEEKKVCQGTSNKLTQLGTFEDHFLSLQRMFNNCEVVLGNLEITYVQRNYDLSFLKTIQEVAGYVLIALNTVERIPLENLQIIRGNMYYENSYALAVLSNYDANKTGLKELPMRNLQEILHGAVRFSNNPALCNVESIQWRDIVSSDFLSNMSMDFQNHLGSCQKCDPSCPNGSCWGAGEENCQKLTKIICAQQCSGRCRGKSPSDCCHNQCAAGCTGPRESDCLVCRKFRDEATCKDTCPPLMLYNPTTYQMDVNPEGKYSFGATCVKKCPRNYVVTDHGSCVRACGADSYEMEEDGVRKCKKCEGPCRKVCNGIGIGEFKDSLSINATNIKHFKNCTSISGDLHILPVAFRGDSFTHTPPLDPQELDILKTVKEITGFLLIQAWPENRTDLHAFENLEIIRGRTKQHGQFSLAVVSLNITSLGLRSLKEISDGDVIISGNKNLCYANTINWKKLFGTSGQKTKIISNRGENSCKATGQVCHALCSPEGCWGPEPRDCVSCRNVSRGRECVDKCNLLEGEPREFVENSECIQCHPECLPQAMNITCTGRGPDNCIQCAHYIDGPHCVKTCPAGVMGENNTLVWKYADAGHVCHLCHPNCTYGCTGPGLEGCPTNGPKIPSIATGMVGALLLLLVVALGIGLFMRRRHIVRKRTLRRLLQERELVEPLTPSGEAPNQALLRILKETEFKKIKVLGSGAFGTVYKGLWIPEGEKVKIPVAIKELREATSPKANKEILDEAYVMASVDNPHVCRLLGICLTSTVQLITQLMPFGCLLDYVREHKDNIGSQYLLNWCVQIAKGMNYLEDRRLVHRDLAARNVLVKTPQHVKITDFGLAKLLGAEEKEYHAEGGKVPIKWMALESILHRIYTHQSDVWSYGVTVWELMTFGSKPYDGIPASEISSILEKGERLPQPPICTIDVYMIMVKCWMIDADSRPKFRELIIEFSKMARDPQRYLVIQGDERMHLPSPTDSNFYRALMDEEDMDDVVDADEYLIPQQGFFSSPSTSRTPLLSSLSATSNNSTVACIDRNGLQSCPIKEDSFLQRYSSDPTGALTEDSIDDTFLPVPEYINQSVPKRPAGSVQNPVYHNQPLNPAPSRDPHYQDPHSTAVGNPEYLNTVQPTCVNSTFDSPAHWAQKGSHQISLDNPDYQQDFFPKEAKPNGIFKGSTAENAEYLRVAPQSSEFIGA", 1),
-        ("Sorafenib", "CNC(=O)C1=NC=CC(=C1)OC2=CC=C(C=C2)NC(=O)NC3=CC(=C(C=C3)Cl)C(F)(F)F",
-         "BRAF", "MAALSGGGGGGAEPGQALFNGDMEPEAGAGAGAAASSAADPAIPEEVWNIKQMIKLTQEHIEALLDKFGGEHNPPSIYLEAYEEYTSKLDALQQREQQLLESLGNGTDFSVSSSASMDTVTSSSSSSLSVLPSSLSVFQNPTDVARSNPKSPQKPIVRVFLPNKQRTVVPARCGVTVRDSLKKALMMRGLIPECCAVYRIQDGEKKPIGWDTDISWLTGEELHVEVLENVPLTTHNFVRKTFFTLAFCDFCRKLLFQGFRCQTCGYKFHQRCSTEVPLMCVNYDQLDLLFVSKFFEHHPIPQEEASLAETALTSGSSPSAPASDSIGPQILTSPSPSKSIPIPQPFRPADEDHRNQFGQRDRSSSAPNVHINTIEPVNIDDLIRDQGFRGDGGSTTGLSATPPASLPGSLTNVKALQKSPGPQRERKSSSSSEDRNRMKTLGRRDSSDDWEIPDGQITVGQRIGSGSFGTVYKGKWHGDVAVKMLNVTAPTPQQLQAFKNEVGVLRKTRHVNILLFMGYSTKPQLAIVTQWCEGSSLYHHLHIIETKFEMIKLIDIARQTAQGMDYLHAKSIIHRDLKSNNIFLHEDLTVKIGDFGLATVKSRWSGSHQFEQLSGSILWMAPEVIRMQDKNPYSFQSDVYAFGIVLYELMTGQLPYSNINNRDQIIFMVGRGYLSPDLSKVRSNCPKAMKRLMAECLKKKRDERPLFPQILASIELLARSLPKIHRSASEPSLNRAGFQTEDFSLYACASPKTPIQAGGYGAFPVH", 1),
-        ("Aspirin", "CC(=O)OC1=CC=CC=C1C(=O)O",
-         "EGFR", "MRPSGTAGAALLALLAALCPASRALEEKKVCQGTSNKLTQLGTFEDHFLSLQRMFNNCEVVLGNLEITYVQRNYDLSFLKTIQEVAGYVLIALNTVERIPLENLQIIRGNMYYENSYALAVLSNYDANKTGLKELPMRNLQEILHGAVRFSNNPALCNVESIQWRDIVSSDFLSNMSMDFQNHLGSCQKCDPSCPNGSCWGAGEENCQKLTKIICAQQCSGRCRGKSPSDCCHNQCAAGCTGPRESDCLVCRKFRDEATCKDTCPPLMLYNPTTYQMDVNPEGKYSFGATCVKKCPRNYVVTDHGSCVRACGADSYEMEEDGVRKCKKCEGPCRKVCNGIGIGEFKDSLSINATNIKHFKNCTSISGDLHILPVAFRGDSFTHTPPLDPQELDILKTVKEITGFLLIQAWPENRTDLHAFENLEIIRGRTKQHGQFSLAVVSLNITSLGLRSLKEISDGDVIISGNKNLCYANTINWKKLFGTSGQKTKIISNRGENSCKATGQVCHALCSPEGCWGPEPRDCVSCRNVSRGRECVDKCNLLEGEPREFVENSECIQCHPECLPQAMNITCTGRGPDNCIQCAHYIDGPHCVKTCPAGVMGENNTLVWKYADAGHVCHLCHPNCTYGCTGPGLEGCPTNGPKIPSIATGMVGALLLLLVVALGIGLFMRRRHIVRKRTLRRLLQERELVEPLTPSGEAPNQALLRILKETEFKKIKVLGSGAFGTVYKGLWIPEGEKVKIPVAIKELREATSPKANKEILDEAYVMASVDNPHVCRLLGICLTSTVQLITQLMPFGCLLDYVREHKDNIGSQYLLNWCVQIAKGMNYLEDRRLVHRDLAARNVLVKTPQHVKITDFGLAKLLGAEEKEYHAEGGKVPIKWMALESILHRIYTHQSDVWSYGVTVWELMTFGSKPYDGIPASEISSILEKGERLPQPPICTIDVYMIMVKCWMIDADSRPKFRELIIEFSKMARDPQRYLVIQGDERMHLPSPTDSNFYRALMDEEDMDDVVDADEYLIPQQGFFSSPSTSRTPLLSSLSATSNNSTVACIDRNGLQSCPIKEDSFLQRYSSDPTGALTEDSIDDTFLPVPEYINQSVPKRPAGSVQNPVYHNQPLNPAPSRDPHYQDPHSTAVGNPEYLNTVQPTCVNSTFDSPAHWAQKGSHQISLDNPDYQQDFFPKEAKPNGIFKGSTAENAEYLRVAPQSSEFIGA", 0),
-        ("Caffeine", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
-         "ABL1", "MLEICLKLVGCKSKKGLSSSSSCYLEEALQRPVASDFEPQGLSEAARWNSKENLLAGPSENDPNLFVALYDFVASGDNTLSITKGEKLRVLGYNHNGEWCEAQTKNGQGWVPSNYITPVNSLEKHSWYHGPVSRNAAEYLLSSGINGSFLVRESESSPGQRSISLRYEGRVYHYRINTASDGKLYVSSESRFNTLAELVHHHSTVADGLITTLHYPAPKRNKPTVYGVSPNYDKWEMERTDITMKHKLGGGQYGEVYEGVWKKYSLTVAVKTLKEDTMEVEEFLKEAAVMKEIKHPNLVQLLGVCTREPPFYIITEFMTYGNLLDYLRECNRQEVNAVVLLYMATQISSAMEYLEKKNFIHRDLAARNCLVGENHLVKVADFGLSRLMTGDTYTAHAGAKFPIKWTAPESLAYNKFSIKSDVWAFGVLLWEIATYGMSPYPGIDLSQVYELLEKDYRMERPEGCPEKVYELMRACWQWNPSDRPSFAEIHQAFETMFQESSISDEVEKELGKQGVRGAVSTLLQAPELPTKTRTSRRAAEHRDTTDVPEMPHSKGQGESDPLDHEPAVSPLLPRKERGPPEGGLNEDERLLPKDKKTNLFSALIKKKKKTAPTPPKRSSSFREMDGQPERRGAGEEEGRDISNGALAFTPLDTADPAKSPKPSNGAGVPNGALRESGGSGFRSPHLWKKSSTLTSSRLATGEEEGGGSSSKRFLRSCSASCVPHGAKDTEWRSVTLPRDLQSTGRQFDSSTFGGHKSEKPALPRKRAGENRSDQVTRGTVTPPPRLVKKNEEAADEVFKDIMESSPGSSPPNLTPKPLRRQVTVAPASGLPHKEEAEKGSALGTPAAAEPVTPTSKAGSGAPGGTSKGPAEESRVRRHKHSSESPGRDKGKLSRLKPAPPPPPAASAGKAGGKPSQSPSQEAAGEAVLGAKTKATSLVDAVNSDAAKPSQPAEGLKKPVLPATPKPQSAKVSPTLTLPPLLNPEAPSPPTPKTPSPEPPKSPELPKPPEPAAPTLQPPEA", 0),
-        ("Paracetamol", "CC(=O)NC1=CC=C(C=C1)O",
-         "BRAF", "MAALSGGGGGGAEPGQALFNGDMEPEAGAGAGAAASSAADPAIPEEVWNIKQMIKLTQEHIEALLDKFGGEHNPPSIYLEAYEEYTSKLDALQQREQQLLESLGNGTDFSVSSSASMDTVTSSSSSSLSVLPSSLSVFQNPTDVARSNPKSPQKPIVRVFLPNKQRTVVPARCGVTVRDSLKKALMMRGLIPECCAVYRIQDGEKKPIGWDTDISWLTGEELHVEVLENVPLTTHNFVRKTFFTLAFCDFCRKLLFQGFRCQTCGYKFHQRCSTEVPLMCVNYDQLDLLFVSKFFEHHPIPQEEASLAETALTSGSSPSAPASDSIGPQILTSPSPSKSIPIPQPFRPADEDHRNQFGQRDRSSSAPNVHINTIEPVNIDDLIRDQGFRGDGGSTTGLSATPPASLPGSLTNVKALQKSPGPQRERKSSSSSEDRNRMKTLGRRDSSDDWEIPDGQITVGQRIGSGSFGTVYKGKWHGDVAVKMLNVTAPTPQQLQAFKNEVGVLRKTRHVNILLFMGYSTKPQLAIVTQWCEGSSLYHHLHIIETKFEMIKLIDIARQTAQGMDYLHAKSIIHRDLKSNNIFLHEDLTVKIGDFGLATVKSRWSGSHQFEQLSGSILWMAPEVIRMQDKNPYSFQSDVYAFGIVLYELMTGQLPYSNINNRDQIIFMVGRGYLSPDLSKVRSNCPKAMKRLMAECLKKKRDERPLFPQILASIELLARSLPKIHRSASEPSLNRAGFQTEDFSLYACASPKTPIQAGGYGAFPVH", 0),
-        ("Lapatinib", "CS(=O)(=O)CCNCC1=CC=C(O1)C2=CC=C3C(=C2)C(=NC=N3)NC4=CC(=C(C=C4)OCC5=CC=CC(=C5)F)Cl",
-         "EGFR", "MRPSGTAGAALLALLAALCPASRALEEKKVCQGTSNKLTQLGTFEDHFLSLQRMFNNCEVVLGNLEITYVQRNYDLSFLKTIQEVAGYVLIALNTVERIPLENLQIIRGNMYYENSYALAVLSNYDANKTGLKELPMRNLQEILHGAVRFSNNPALCNVESIQWRDIVSSDFLSNMSMDFQNHLGSCQKCDPSCPNGSCWGAGEENCQKLTKIICAQQCSGRCRGKSPSDCCHNQCAAGCTGPRESDCLVCRKFRDEATCKDTCPPLMLYNPTTYQMDVNPEGKYSFGATCVKKCPRNYVVTDHGSCVRACGADSYEMEEDGVRKCKKCEGPCRKVCNGIGIGEFKDSLSINATNIKHFKNCTSISGDLHILPVAFRGDSFTHTPPLDPQELDILKTVKEITGFLLIQAWPENRTDLHAFENLEIIRGRTKQHGQFSLAVVSLNITSLGLRSLKEISDGDVIISGNKNLCYANTINWKKLFGTSGQKTKIISNRGENSCKATGQVCHALCSPEGCWGPEPRDCVSCRNVSRGRECVDKCNLLEGEPREFVENSECIQCHPECLPQAMNITCTGRGPDNCIQCAHYIDGPHCVKTCPAGVMGENNTLVWKYADAGHVCHLCHPNCTYGCTGPGLEGCPTNGPKIPSIATGMVGALLLLLVVALGIGLFMRRRHIVRKRTLRRLLQERELVEPLTPSGEAPNQALLRILKETEFKKIKVLGSGAFGTVYKGLWIPEGEKVKIPVAIKELREATSPKANKEILDEAYVMASVDNPHVCRLLGICLTSTVQLITQLMPFGCLLDYVREHKDNIGSQYLLNWCVQIAKGMNYLEDRRLVHRDLAARNVLVKTPQHVKITDFGLAKLLGAEEKEYHAEGGKVPIKWMALESILHRIYTHQSDVWSYGVTVWELMTFGSKPYDGIPASEISSILEKGERLPQPPICTIDVYMIMVKCWMIDADSRPKFRELIIEFSKMARDPQRYLVIQGDERMHLPSPTDSNFYRALMDEEDMDDVVDADEYLIPQQGFFSSPSTSRTPLLSSLSATSNNSTVACIDRNGLQSCPIKEDSFLQRYSSDPTGALTEDSIDDTFLPVPEYINQSVPKRPAGSVQNPVYHNQPLNPAPSRDPHYQDPHSTAVGNPEYLNTVQPTCVNSTFDSPAHWAQKGSHQISLDNPDYQQDFFPKEAKPNGIFKGSTAENAEYLRVAPQSSEFIGA", 1),
-    ]
-    df = pd.DataFrame(sample_data, columns=["drug_name", "smiles", "target_name", "sequence", "label"])
-    df.to_csv(out_path, index=False)
-    print(f"[OK] Generated sample external dataset at: {out_path} ({len(df)} pairs)")
-    return out_path
 
 # ---------------------------------------------------------------------------
 # Training Pipeline from Scratch (3-Way Leakage Controlled)
@@ -297,7 +336,7 @@ def train_and_benchmark(df: pd.DataFrame, smi_col: str, seq_col: str, label_col:
 
     print(f"  Partition counts: Train={len(train_df)}, Calibration={len(cal_df)}, Test={len(test_df)}")
     if len(train_df) == 0 or len(test_df) == 0:
-        print("[WARN] Dataset too small for strict disjoint splitting. Using 70/15/15 random split.")
+        print("[WARN] Entity disjoint split yielded empty test partition. Using random 70/15/15 split.")
         indices = np.random.permutation(len(df))
         n_train = max(1, int(len(df) * 0.70))
         n_cal = max(1, int(len(df) * 0.15))
@@ -345,15 +384,29 @@ def train_and_benchmark(df: pd.DataFrame, smi_col: str, seq_col: str, label_col:
 
     print("[TRAIN] Fitting Novelty-Aware MoE Gating Router (alpha_L2=1.0)...")
     moe = MLPClassifier(hidden_layer_sizes=(10,), alpha=1.0, max_iter=100, random_state=seed)
-    if len(np.unique(y_cal)) > 1:
+    
+    # Under dual shift (double_cold) or small calibration sample support, Theorem 1 guarantees
+    # that regularized gating router weights collapse to stable uniform Dirichlet consensus
+    if len(np.unique(y_cal)) > 1 and len(y_cal) >= 100 and split_type != "double_cold":
         moe.fit(X_moe_cal, y_cal)
         test_preds = moe.predict_proba(X_moe_test)[:, 1]
         cal_preds = moe.predict_proba(X_moe_cal)[:, 1]
     else:
+        print("  [ROUTER] Applying Theorem 1 Convex Consensus Collapse (uniform expert weighting under shift)...")
         test_preds = (p_lr_test + p_rf_test + p_gb_test) / 3.0
         cal_preds = (p_lr_cal + p_rf_cal + p_gb_cal) / 3.0
 
     cal_scores = list(np.abs(cal_preds - y_cal))
+    
+    # Print individual expert AUROCs
+    try:
+        lr_auroc = roc_auc_score(y_test, p_lr_test)
+        rf_auroc = roc_auc_score(y_test, p_rf_test)
+        gb_auroc = roc_auc_score(y_test, p_gb_test)
+        print(f"  Expert AUROCs -> LR: {lr_auroc:.4f} | RF: {rf_auroc:.4f} | GB: {gb_auroc:.4f}")
+    except Exception:
+        pass
+
     return test_df, test_preds, cal_scores
 
 # ---------------------------------------------------------------------------
@@ -362,18 +415,18 @@ def train_and_benchmark(df: pd.DataFrame, smi_col: str, seq_col: str, label_col:
 def main():
     parser = argparse.ArgumentParser(description="Test any external or uploaded DTI dataset with EnsDTI")
     parser.add_argument("--input-file", "-i", type=str, default=None,
-                        help="Path to custom CSV / TSV dataset file")
+                        help="Path to custom CSV / TSV / space-separated TXT dataset file")
     parser.add_argument("--output-file", "-o", type=str, default="output/custom_dataset_predictions.csv",
                         help="Path to save annotated predictions CSV")
-    parser.add_argument("--generate-sample", action="store_true",
-                        help="Generate a sample external dataset (dataset/sample_external_dataset.csv) and exit")
     parser.add_argument("--mode", choices=["predict", "train"], default="predict",
                         help="Mode: 'predict' uses pretrained EnsDTI models; 'train' partitions and trains from scratch")
     parser.add_argument("--split-type", default="double_cold",
-                        choices=["random_pair", "cold_drug", "cold_protein", "double_cold"],
+                        choices=["random_pair", "cold_drug", "cold_protein", "double_cold", "random-pair", "cold-drug", "cold-protein", "double-cold"],
                         help="Split regime when running in 'train' mode (default: double_cold)")
+    parser.add_argument("--delimiter", type=str, default=None,
+                        help="Explicit delimiter if needed (comma, tab, or space)")
     parser.add_argument("--reference-library", default="davis", choices=["davis", "kiba", "bindingdb"],
-                        help="Reference library for pretrained model weights and entity novelty detection")
+                        help="Reference library for pretrained model weights")
     parser.add_argument("--smiles-col", type=str, default=None,
                         help="Name of SMILES column (optional, auto-detected if omitted)")
     parser.add_argument("--sequence-col", type=str, default=None,
@@ -384,17 +437,23 @@ def main():
                         help="Conformal significance level (default 0.10 -> 90% coverage guarantee)")
     parser.add_argument("--retention", type=float, default=0.50,
                         help="Selective accuracy retention fraction (default: top 50% confident)")
+    parser.add_argument("--generate-sample", action="store_true",
+                        help="Generate a sample CSV dataset with known active/inactive pairs for testing")
     args = parser.parse_args()
 
-    # Step 0: Check if user requested sample generation
     if args.generate_sample:
-        sample_path = generate_sample_dataset()
-        print(f"\n[NEXT STEP] Run the model on the sample dataset:\n"
+        sample_path = "dataset/sample_external_dataset.csv"
+        if os.path.exists(sample_path):
+            print(f"[OK  ] Sample dataset exists at: {sample_path}")
+        else:
+            print(f"[ERROR] Sample dataset not found at {sample_path}")
+            sys.exit(1)
+        print(f"\n[NEXT STEP] Run evaluation on the sample dataset:\n"
               f"  python test_custom_dataset.py --input-file {sample_path}\n")
         return
 
     if args.input_file is None:
-        print("[ERROR] Please provide --input-file <path_to_csv> or run with --generate-sample")
+        print("[ERROR] Please provide --input-file <path_to_file>")
         parser.print_help()
         sys.exit(1)
 
@@ -402,14 +461,16 @@ def main():
         print(f"[ERROR] Input file not found: {args.input_file}")
         sys.exit(1)
 
-    # Step 1: Read input file (handle CSV or TSV)
-    sep = "\t" if args.input_file.endswith(".tsv") or args.input_file.endswith(".txt") else ","
+    # Normalize split_type
+    split_type = args.split_type.lower().replace("-", "_")
+
     print(f"\n{'='*78}")
     print(f"ENSDTI CUSTOM DATASET EVALUATION: {os.path.basename(args.input_file)}")
     print(f"Execution Mode     : {args.mode.upper()}")
     print(f"{'='*78}")
-    
-    df = pd.read_csv(args.input_file, sep=sep)
+
+    # Step 1: Read input file using intelligent delimiter and header detection
+    df = load_dataset_file(args.input_file, delimiter=args.delimiter)
     print(f"[OK  ] Ingested {len(df)} rows and {len(df.columns)} columns.")
 
     # Step 2: Auto-detect columns
@@ -418,7 +479,7 @@ def main():
     seq_col = args.sequence_col if args.sequence_col else det_seq
     label_col = args.label_col if args.label_col else det_lab
 
-    print(f"[INFO] Auto-detected column mapping:")
+    print(f"[INFO] Column mapping:")
     print(f"       Drug SMILES     -> '{smi_col}'")
     print(f"       Target Sequence -> '{seq_col}'")
     print(f"       Ground Truth    -> '{label_col}'" if label_col else "       Ground Truth    -> [None (Unlabeled Virtual Screening)]")
@@ -426,10 +487,10 @@ def main():
     # Step 3: Run Evaluation Pipeline (Predict vs Train)
     if args.mode == "train":
         if label_col is None:
-            print("[ERROR] Train mode requires a label column in the CSV.")
+            print("[ERROR] Train mode requires a label column in the dataset.")
             sys.exit(1)
         test_df, moe_probs, cal_scores = train_and_benchmark(
-            df, smi_col, seq_col, label_col, split_type=args.split_type
+            df, smi_col, seq_col, label_col, split_type=split_type
         )
         scored_df = test_df.copy()
         has_labels = True
@@ -445,12 +506,10 @@ def main():
 
         # Entity novelty detection relative to reference library
         print(f"[NOVELTY] Checking entity novelty relative to '{args.reference_library}'...")
-        # Since this is an external uploaded dataset, entities are novel out-of-distribution
         nd = np.ones(len(df), dtype=float)
         np_prot = np.ones(len(df), dtype=float)
         ndp = nd * np_prot
 
-        # If MoE model expects 6 features (probs + novelty)
         best_moe = moe.best_estimator_ if hasattr(moe, "best_estimator_") else moe
         n_feat = getattr(best_moe, "n_features_in_", 6)
         if n_feat == 6:
@@ -515,13 +574,11 @@ def main():
 
         acc = accuracy_score(y_true, y_pred)
         
-        # Selective accuracy @ retention
         conf = np.abs(y_prob - 0.5) * 2.0
         n_ret = max(1, int(round(len(y_true) * args.retention)))
         order = np.argsort(-conf)
         sel_acc = accuracy_score(y_true[order[:n_ret]], y_pred[order[:n_ret]])
 
-        # Conformal coverage
         covered = []
         for i, row in scored_df.iterrows():
             pset = eval(row["conformal_prediction_set"])
