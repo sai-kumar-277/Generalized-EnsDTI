@@ -209,6 +209,40 @@ def compute_conformal_coverage(icp_df, alpha=0.10):
             return float(emp_cov), float(avg_set_size)
     return None, None
 
+def preprocess_cli_args(argv):
+    """
+    Intelligently normalize user CLI inputs to handle accidental flags,
+    positional shortcuts, and hyphenated names.
+    Examples:
+      --split-type --double-cold -> --split-type double_cold
+      --double-cold              -> --split-type double_cold
+      davis double-cold          -> --dataset davis --split-type double_cold
+    """
+    VALID_REGIMES = {"random_pair", "cold_drug", "cold_protein", "double_cold"}
+    VALID_DATASETS = {"davis", "kiba", "bindingdb"}
+    cleaned = []
+    i = 0
+    has_dataset = any(x in argv for x in ["--dataset", "-d"])
+    has_split = any(x in argv for x in ["--split-type", "-s"])
+
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ["--split-type", "-s"] and i + 1 < len(argv):
+            val = argv[i + 1].lstrip("-").replace("-", "_")
+            cleaned.extend(["--split-type", val])
+            i += 2
+        elif arg.lstrip("-").replace("-", "_") in VALID_REGIMES:
+            cleaned.extend(["--split-type", arg.lstrip("-").replace("-", "_")])
+            i += 1
+        elif arg.lower() in VALID_DATASETS and not has_dataset:
+            cleaned.extend(["--dataset", arg.lower()])
+            has_dataset = True
+            i += 1
+        else:
+            cleaned.append(arg)
+            i += 1
+    return cleaned
+
 def main():
     VALID_SPLITS = [
         "random_pair", "cold_drug", "cold_protein", "double_cold",
@@ -230,7 +264,10 @@ def main():
                         help="Selective classification retention fraction (default: 0.50)")
     parser.add_argument("--compare-baseline", action="store_true",
                         help="Run side-by-side comparison with the Original unregularized MoE baseline")
-    args = parser.parse_args()
+    
+    # Preprocess arguments to handle accidental extra hyphens or positional shortcuts
+    raw_args = preprocess_cli_args(sys.argv[1:])
+    args = parser.parse_args(raw_args)
 
     # Normalize inputs
     dataset = args.dataset.strip().lower()
