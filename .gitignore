@@ -65,3 +65,6 @@ generate_comprehensive_pdf.py
 
 # Large external datasets (>50MB)
 dataset/bindingdb/
+
+*.zip
+build_review_package.py
