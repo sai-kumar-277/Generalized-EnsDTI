@@ -68,3 +68,6 @@ dataset/bindingdb/
 
 *.zip
 build_review_package.py
+
+CHECKPOINT_MANIFEST.md
+REVIEW_PACKAGE_README.md
